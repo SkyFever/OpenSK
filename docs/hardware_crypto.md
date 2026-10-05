@@ -161,6 +161,14 @@ against G at operation 1, then verifies independent fixed signatures before
 operation 3: 8 uses Q=2G, 9 uses Q=G, 10 uses Q=-G. These signatures use
 d=2, d=1 or d=n-1, nonce k=1, and the SHA-256 prehash 0x42 repeated 32 times.
 The references were independently verified with host OpenSSL.
+Before operation 9, additional P-192 checks isolate the normalization inputs:
+11 compares CC310's d=2 public key against 2G; 12 verifies the original 2G
+signature with an equivalent 64-byte prehash; 13 verifies the adjusted fixed
+signature with a 32-byte prehash; 14 repeats that check with a 64-byte prehash.
+The adjusted signature and both prehash encodings were checked independently
+with OpenSSL. ECC verifier failures also append white bursts for the raw PSA
+status: 1 invalid signature, 2 invalid argument, 3 not supported, 4 hardware
+failure, 5 buffer too small, 6 corruption detected, 7 other error.
 For example, red 6 / blue 1 / green 2 means P-192 signing failed.
 Repeated green alone remains the all-stages-passed signal.
 RTT logs also identify the ECC curve and operation separately.
@@ -239,5 +247,8 @@ OpenSSL driver stub that refuses bare G and -G inputs. It checks 360 valid
 cases across eight curves, three keys, five digest lengths and three digest
 patterns, plus changed digests, ignored digest suffixes, invalid scalar
 bounds, unchanged inputs and driver/length failures. Curve constants were
-matched to the pinned CC310 ELF domains. This is host validation; execution
-of the corrected basepoint path on the user's board is still pending.
+matched to the pinned CC310 ELF domains. This is host validation. The user's
+board still rejected Q=G at operation 9 with this normalization included in
+the diagnostic UF2. Its d=2 derivation, equivalent wide prehash and fixed
+adjusted signature are now separate diagnostic checks; these new checks
+have not yet run on hardware. The basepoint failure remains unresolved.

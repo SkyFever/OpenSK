@@ -2802,10 +2802,10 @@ index 00000000..c0941963
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/ecc.rs b/crates/runner-nordic/crates/cc310/src/ecc.rs
 new file mode 100644
-index 00000000..eae5c5c0
+index 00000000..d35d9b22
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/ecc.rs
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,186 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Additional Weierstrass curves exposed by the pinned Nordic PSA driver.
 +use alloc::vec;
@@ -2814,6 +2814,15 @@ index 00000000..eae5c5c0
 +use zeroize::Zeroizing;
 +
 +use crate::{INVALID_SIGNATURE, driver, length};
++
++#[cfg(all(feature = "self-test", target_arch = "arm"))]
++static VERIFY_STATUS: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(0);
++/// Last raw ECC verifier status, before invalid signatures become Ok(false).
++#[cfg(all(feature = "self-test", target_arch = "arm"))]
++pub fn diagnostic_verify_status() -> i32 {
++    VERIFY_STATUS.load(core::sync::atomic::Ordering::Relaxed)
++}
++
 +#[derive(Clone, Copy)]
 +#[repr(u32)]
 +pub enum Curve {
@@ -2928,6 +2937,8 @@ index 00000000..eae5c5c0
 +                signature.len(),
 +            )
 +        };
++        #[cfg(all(feature = "self-test", target_arch = "arm"))]
++        VERIFY_STATUS.store(result, core::sync::atomic::Ordering::Relaxed);
 +        if result == INVALID_SIGNATURE {
 +            valid = false;
 +            0
@@ -4433,10 +4444,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..2f91b22c
+index 00000000..b396e2fa
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,305 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4621,6 +4632,26 @@ index 00000000..2f91b22c
 +            );
 +            progress(6, curve_step | 8);
 +            check(ecc::verify(curve, &public_two, &[0x42; 32], &signature_two)?)?;
++            // Isolate the basepoint normalization inputs before testing Q=G.
++            let mut key_two = [0; 24];
++            key_two[23] = 2;
++            let mut derived_two = [0; 49];
++            progress(6, curve_step | 11);
++            ecc::public(curve, &key_two, &mut derived_two)?;
++            check(derived_two == public_two)?;
++            let mut wide_hash = [0; 64];
++            wide_hash[.. 24].fill(0x42);
++            progress(6, curve_step | 12);
++            check(ecc::verify(curve, &public_two, &wide_hash, &signature_two)?)?;
++            let signature_adjusted = hex::<48>(
++                "188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012\
++                 b59fd4a1e4e5a6717e02c65b0bc794866e829a7f8a82a4a8",
++            );
++            wide_hash[.. 24].fill(0x84);
++            progress(6, curve_step | 13);
++            check(ecc::verify(curve, &public_two, &wide_hash[.. 32], &signature_adjusted)?)?;
++            progress(6, curve_step | 14);
++            check(ecc::verify(curve, &public_two, &wide_hash, &signature_adjusted)?)?;
 +            let signature_one = hex::<48>(
 +                "188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012\
 +                 5acfea50f272d338bf01632d85e3ca4337414d3fc5415254",
@@ -6004,7 +6035,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..8cbc157c 100644
+index 891500fd..4c0070b6 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -6057,7 +6088,7 @@ index 891500fd..8cbc157c 100644
      Scheduler::<Board>::run();
  }
  
-@@ -393,3 +401,68 @@ fn usbd() {
+@@ -393,3 +401,91 @@ fn usbd() {
          state.serial.tick(polled, |event| state.events.push(event.into()));
      });
  }
@@ -6097,6 +6128,8 @@ index 891500fd..8cbc157c 100644
 +        color(if next < 8 { next } else { 7 });
 +    });
 +    log::debug!("CC310 self-test: stage={} step={} result={:?}", stage, step, result);
++    let verify_status = nrf_cc310::ecc::diagnostic_verify_status();
++    log::debug!("CC310 self-test: raw ECC verify status={}", verify_status);
 +    loop {
 +        // Green blinking: all checks passed. Red bursts count the failed stage.
 +        let (count, code) = if result.is_ok() { (1, 2) } else { (stage, 1) };
@@ -6117,6 +6150,27 @@ index 891500fd..8cbc157c 100644
 +                cortex_m::asm::delay(24_000_000);
 +                for _ in 0 .. count {
 +                    color(code);
++                    cortex_m::asm::delay(8_000_000);
++                    color(0);
++                    cortex_m::asm::delay(8_000_000);
++                }
++            }
++        }
++        if result.is_err() && stage == 6 && matches!(step & 0xff, 3 | 4 | 8 | 9 | 10 | 12 | 13 | 14) {
++            let count = match verify_status {
++                0 => 0,
++                -149 => 1, // Invalid signature.
++                -135 => 2, // Invalid argument.
++                -134 => 3, // Not supported.
++                -147 => 4, // Hardware failure.
++                -138 => 5, // Buffer too small.
++                -151 => 6, // Corruption detected.
++                _ => 7,
++            };
++            if count != 0 {
++                cortex_m::asm::delay(24_000_000);
++                for _ in 0 .. count {
++                    color(7); // White: raw PSA status class.
 +                    cortex_m::asm::delay(8_000_000);
 +                    color(0);
 +                    cortex_m::asm::delay(8_000_000);
