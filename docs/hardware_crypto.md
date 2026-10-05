@@ -105,3 +105,11 @@ The `x25519` adapter feature exposes key generation, public derivation and
 ECDH in RFC7748 little-endian form. All-zero shared secrets are rejected.
 RFC7748 cross-party and low-order checks pass in the host model; hardware
 execution is pending. OpenSK credential algorithms are unchanged.
+
+The `ecc` adapter feature exposes NIST P-192/P-224/P-256/P-384,
+secp192k1/secp224k1/secp256k1 and BrainpoolP256r1 keygen, SEC1 public keys,
+ECDSA prehash and ECDH. Host OpenSSL cross-checks cover all eight curves.
+The pinned PSA binary rejects 160-bit and P-521 domain mappings; these curves
+are not exposed. SHA-384/SHA-512 digests may be supplied to ECDSA externally,
+but their hash computation is not a CC310 hardware path. Hardware execution
+of the additional curves is pending. Host tests require OpenSSL development headers.
