@@ -147,7 +147,7 @@ fi
 
 if [[ "$CRYPTO" == cc310 ]]; then
   python3 tools/setup_cc310.py
-  RUNNER_CRYPTO_FEATURES="hardware-crypto-p256,hardware-crypto-symmetric,hardware-crypto-rng"
+  RUNNER_CRYPTO_FEATURES="hardware-crypto-p256,hardware-crypto-symmetric,hardware-crypto-rng,hardware-crypto-aes128-ccm,cc310-primitives"
 else
   RUNNER_CRYPTO_FEATURES="software-crypto-aes256-cbc,software-crypto-hmac-sha256"
   RUNNER_CRYPTO_FEATURES+=",software-crypto-p256-ecdh,software-crypto-p256-ecdsa"

@@ -86,3 +86,11 @@ The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
 SHA-1/SHA-224 and HMAC vectors pass in the host driver model; hardware execution
 of these additional primitives is pending.
+
+The `aes128` adapter feature exposes ECB/CBC (without padding), CTR, CMAC,
+CBC-MAC and CCM with 7–13-byte nonces and 4–16-byte even-length tags.
+The runner feature `hardware-crypto-aes128-ccm` selects CC310 CCM for the
+existing board API; it is mutually exclusive with the BLE CCM peripheral.
+`cc310-primitives` enables the additional hash and AES APIs. It does not add
+WebAuthn algorithms. NIST AES/CMAC vectors, round trips and tampered-tag/error
+handling pass in the host model; physical-device execution is pending.
