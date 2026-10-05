@@ -127,7 +127,10 @@ outputs; Nordic's pinned mapper selects it using field bits 224.
 The pinned PSA binary rejects 160-bit and P-521 domain mappings; these curves
 are not exposed. SHA-384/SHA-512 digests may be supplied to ECDSA externally,
 but their hash computation is not a CC310 hardware path. Hardware execution
-of the additional curves is pending. Host tests require OpenSSL development headers.
+has passed the full P-192, P-224, P-256, P-384 and secp192k1 stages.
+secp224k1 public derivation, signing, verification, changed-digest rejection
+and ECDH passed; its fresh key generation failed at stage 6 / curve 6 /
+operation 6. Later curves have not yet run. Host tests require OpenSSL development headers.
 
 The `rsa` adapter feature provides 1024/1536/2048-bit key generation,
 PKCS#1 DER public/private keys, SHA-256 PKCS#1 v1.5/PSS signatures and
@@ -161,7 +164,8 @@ against G at operation 1, then verifies independent fixed signatures before
 operation 3: 8 uses Q=2G, 9 uses Q=G, 10 uses Q=-G. These signatures use
 d=2, d=1 or d=n-1, nonce k=1, and the SHA-256 prehash 0x42 repeated 32 times.
 The references were independently verified with host OpenSSL.
-Before operation 9, additional P-192 checks isolate the normalization inputs:
+Before operation 9, additional P-192 checks retain the failed normalization
+inputs as regression vectors:
 11 compares CC310's d=2 public key against 2G; 12 verifies the original 2G
 signature with an equivalent 64-byte prehash; 13 verifies the adjusted fixed
 signature with a 32-byte prehash; 14 repeats that check with a 64-byte prehash.
@@ -229,26 +233,45 @@ and short output.
 
 The user's board passed the independent P-192 Q=2G signature but rejected
 the independently verified Q=G signature (stage 6 / curve 1 / operation 9).
-The pinned core verifier precomputes G+Q through PkaAddAff; its instruction
-path has no equal-point branch. The adapter handles exact Q=G and Q=-G inputs
-by deriving Q'=2Q with CC310 and supplying e'=2e mod n and s'=2s mod n.
-The verification equation is unchanged:
-(e'/s')G + (r/s')Q' = (e/s)G + (r/s)Q.
+The pinned core verifier precomputes G+Q through PkaAddAff, whose instruction
+path has no equal-point branch. An initial Q'=2Q, e'=2e, s'=2s normalization
+preserved the verification equation but still failed on the board.
+
+The board then passed its d=2 public derivation and an equivalent 64-byte
+prehash (operations 11 and 12), but rejected the independent transformed
+Q=2G signature at operation 13 with PSA_ERROR_INVALID_SIGNATURE (white 1).
+For that vector, a scalar-coefficient replay of the core's binary joint
+multiplication reaches -G+G=infinity at bit 1 before returning to G.
+PkaAddJcbAfn2Mdf also has no equal/opposite-point branch. Changing only the
+precomputed point does not avoid this intermediate exceptional addition.
+
+For exact Q=dG with d in {1,-1,2,-2}, the adapter now computes the public
+scalar z=(e+d*r)/s mod n, asks CC310 to derive R=zG, and checks R.x mod n=r.
+This uses one hardware point multiplication instead of the affected joint
+multiplication. A zero z rejects the infinity result before a driver call.
+Both coordinates must match the independently derived known public point;
+the adapter does not infer d from an x coordinate alone.
+
+Signature scalar bounds are checked before reduction. Binary extended GCD
+and modular multiplication prepare public inputs in C; the curve operation
+still runs on CC310. This is a hybrid verification path for the four known
+points, not a fully hardware scalar calculation. Driver/length/SEC1-prefix
+failures propagate. Other public keys retain the Nordic verifier. The
+implementation covers the demonstrated known-point failures; it does not
+establish completeness of the pinned core's addition formulas for other keys.
+bits2int truncation is preserved, including secp224k1's 225-bit order.
 This applies to all eight curves and the existing P-256 board API.
 
-Only public input preparation uses C byte arithmetic. The replacement point
-and signature verification still use CC310. Invalid r/s values are rejected
-before reduction, and driver errors propagate. The adjusted ECDSA integer
-uses a 64-byte prehash buffer; this does not compute SHA-512. The encoding
-preserves bits2int truncation, including secp224k1's 225-bit order.
-
-python3 tools/test_cc310_ecc.py exercises the actual C shim against an
-OpenSSL driver stub that refuses bare G and -G inputs. It checks 360 valid
-cases across eight curves, three keys, five digest lengths and three digest
-patterns, plus changed digests, ignored digest suffixes, invalid scalar
-bounds, unchanged inputs and driver/length failures. Curve constants were
-matched to the pinned CC310 ELF domains. This is host validation. The user's
-board still rejected Q=G at operation 9 with this normalization included in
-the diagnostic UF2. Its d=2 derivation, equivalent wide prehash and fixed
-adjusted signature are now separate diagnostic checks; these new checks
-have not yet run on hardware. The basepoint failure remains unresolved.
+python3 tools/test_cc310_ecc.py exercises the actual C shim with an OpenSSL
+driver stub that refuses joint verification for G, -G, 2G and -2G.
+It checks 600 random-nonce and 480 fixed-nonce valid signatures across eight
+curves, five keys, five digest lengths and three digest patterns, plus
+changed digests, ignored digest suffixes, scalar bounds, infinity rejection,
+unchanged inputs and driver/length/prefix failures. The fifth key (3G) checks
+that ordinary keys retain the driver path. Curve constants are independently
+derived with OpenSSL, and the original domain constants match the pinned
+CC310 ELF domains. The user's board passed the replacement P-192 fixed
+signatures, including the previously failing operation 13, Q=G and Q=-G.
+It then completed the first five ECC curves and reached secp224k1 fresh key
+generation (stage 6 / curve 6 / operation 6). The single-point path also
+passed secp224k1's generated signature with its 225-bit scalar order.
