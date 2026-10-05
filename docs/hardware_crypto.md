@@ -140,3 +140,4 @@ No hardware execution is implied by successfully building this image.
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
 using the CC310 AES-CTR payload stream. Its ciphertext matches authenticated
 CCM for the same key/nonce. It is included in hardware self-test stage 3.
+\nSRP contexts become unusable and are wiped after a driver failure. This prevents\nsubsequent calls from dereferencing callback pointers cleared by Nordic.\n

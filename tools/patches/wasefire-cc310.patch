@@ -3886,10 +3886,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..952bb23d
+index 00000000..0bb32fba
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,189 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4071,7 +4071,8 @@ index 00000000..952bb23d
 +    let mut session = user.user_proof(&salt, &a, &b)?;
 +    if tamper {
 +        session.proof[0] ^= 1;
-+        check(host.host_proof(&salt, &verifier, &a, &b, &session.proof).is_err())
++        check(host.host_proof(&salt, &verifier, &a, &b, &session.proof).is_err())?;
++        check(host.public(Some(&verifier)).is_err())
 +    } else {
 +        let host_session = host.host_proof(&salt, &verifier, &a, &b, &session.proof)?;
 +        check(session.key == host_session.key)?;
@@ -4080,10 +4081,10 @@ index 00000000..952bb23d
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/srp.rs b/crates/runner-nordic/crates/cc310/src/srp.rs
 new file mode 100644
-index 00000000..898d9f4d
+index 00000000..09723eeb
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/srp.rs
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,262 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Nordic legacy SRP-6a/SHA-256, available on ARM. Caller supplies a trusted group.
 +//! A context belongs to one exchange. Do not reuse ephemeral keys across exchanges.
@@ -4110,6 +4111,8 @@ index 00000000..898d9f4d
 +    modulus_size: usize,
 +    key_size: usize,
 +    host: bool,
++    valid: bool,
++    credentials: bool,
 +}
 +impl Context {
 +    /// The modulus must be a trusted prime of 1024,1536,2048 or 3072 bits.
@@ -4137,6 +4140,8 @@ index 00000000..898d9f4d
 +            modulus_size: modulus.len(),
 +            key_size: 0,
 +            host,
++            valid: true,
++            credentials: password.is_some(),
 +        };
 +        // The legacy API declares mutable inputs; give it owned, fully sized buffers.
 +        let mut n = Zeroizing::new(vec![0; 384]);
@@ -4165,6 +4170,18 @@ index 00000000..898d9f4d
 +        }
 +        Ok(result)
 +    }
++    fn ensure_valid(&self) -> Result<(), Error> {
++        if self.valid { Ok(()) } else { Err(Error::world(0)) }
++    }
++    fn complete(&mut self, result: Result<(), Error>) -> Result<(), Error> {
++        if result.is_err() {
++            // The Nordic library clears its context on several errors, including pRndCtx.
++            // Prevent any later call from dereferencing the cleared callback pointer.
++            self.valid = false;
++            self.memory.zeroize();
++        }
++        result
++    }
 +    fn ptr(&mut self) -> *mut c_void {
 +        self.memory.as_mut_ptr().cast()
 +    }
@@ -4179,19 +4196,25 @@ index 00000000..898d9f4d
 +    }
 +    /// Creates fresh salt and the password verifier using the initialized credentials.
 +    pub fn verifier(&mut self, salt: &mut [u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
++        self.ensure_valid()?;
++        if !self.credentials {
++            return Err(Error::user(0));
++        }
 +        Self::salt(salt)?;
 +        let mut s = Zeroizing::new(salt.to_vec());
 +        let mut v = Zeroizing::new(vec![0; 384]);
 +        // SAFETY: Context is exclusive; legacy fixed-width output is fully reserved.
-+        driver(|| unsafe {
++        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_srp_verifier(self.ptr(), s.as_mut_ptr(), s.len(), v.as_mut_ptr())
-+        })?;
++        });
++        self.complete(result)?;
 +        salt.copy_from_slice(&s);
 +        v[self.modulus_size ..].zeroize();
 +        v.truncate(self.modulus_size);
 +        Ok(v)
 +    }
 +    pub fn public(&mut self, verifier: Option<&[u8]>) -> Result<Vec<u8>, Error> {
++        self.ensure_valid()?;
 +        let mut v = if self.host {
 +            self.modulus(verifier.ok_or(Error::user(0))?)?
 +        } else {
@@ -4202,13 +4225,15 @@ index 00000000..898d9f4d
 +        };
 +        let mut output = vec![0; 384];
 +        // SAFETY: All legacy modulus arrays have their full 384-byte capacity.
-+        driver(|| unsafe {
++        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_srp_public(self.ptr(), self.host, v.as_mut_ptr(), output.as_mut_ptr())
-+        })?;
++        });
++        self.complete(result)?;
 +        output.truncate(self.modulus_size);
 +        Ok(output)
 +    }
 +    pub fn user_proof(&mut self, salt: &[u8], a: &[u8], b: &[u8]) -> Result<Session, Error> {
++        self.ensure_valid()?;
 +        if self.host {
 +            return Err(Error::user(0));
 +        }
@@ -4218,7 +4243,7 @@ index 00000000..898d9f4d
 +        let mut proof = [0; 64];
 +        let mut key = Zeroizing::new(vec![0; 128]);
 +        // SAFETY: Fixed-width legacy buffers and exclusive initialized context are live.
-+        driver(|| unsafe {
++        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_srp_user_proof(
 +                self.ptr(),
 +                salt.as_mut_ptr(),
@@ -4228,7 +4253,8 @@ index 00000000..898d9f4d
 +                proof.as_mut_ptr(),
 +                key.as_mut_ptr(),
 +            )
-+        })?;
++        });
++        self.complete(result)?;
 +        key[self.key_size ..].zeroize();
 +        key.truncate(self.key_size);
 +        Ok(Session { proof: proof[.. 32].try_into().unwrap(), key })
@@ -4236,6 +4262,7 @@ index 00000000..898d9f4d
 +    pub fn host_proof(
 +        &mut self, salt: &[u8], verifier: &[u8], a: &[u8], b: &[u8], user_proof: &[u8; 32],
 +    ) -> Result<Session, Error> {
++        self.ensure_valid()?;
 +        if !self.host {
 +            return Err(Error::user(0));
 +        }
@@ -4247,7 +4274,7 @@ index 00000000..898d9f4d
 +        let mut proof = [0; 64];
 +        let mut key = Zeroizing::new(vec![0; 128]);
 +        // SAFETY: Every legacy fixed-width output/input is fully allocated.
-+        driver(|| unsafe {
++        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_srp_host_proof(
 +                self.ptr(),
 +                salt.as_mut_ptr(),
@@ -4259,7 +4286,8 @@ index 00000000..898d9f4d
 +                proof.as_mut_ptr(),
 +                key.as_mut_ptr(),
 +            )
-+        })?;
++        });
++        self.complete(result)?;
 +        key[self.key_size ..].zeroize();
 +        key.truncate(self.key_size);
 +        Ok(Session { proof: proof[.. 32].try_into().unwrap(), key })
@@ -4267,6 +4295,7 @@ index 00000000..898d9f4d
 +    pub fn user_verify(
 +        &mut self, key: &[u8], a: &[u8], user_proof: &[u8; 32], host_proof: &[u8; 32],
 +    ) -> Result<(), Error> {
++        self.ensure_valid()?;
 +        if self.host {
 +            return Err(Error::user(0));
 +        }
@@ -4278,7 +4307,7 @@ index 00000000..898d9f4d
 +        user[.. 32].copy_from_slice(user_proof);
 +        host[.. 32].copy_from_slice(host_proof);
 +        // SAFETY: Full legacy buffers and exclusive context remain alive throughout the call.
-+        driver(|| unsafe {
++        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_srp_user_verify(
 +                self.ptr(),
 +                k.as_mut_ptr(),
@@ -4286,7 +4315,8 @@ index 00000000..898d9f4d
 +                user.as_mut_ptr(),
 +                host.as_mut_ptr(),
 +            )
-+        })
++        });
++        self.complete(result)
 +    }
 +}
 +mod ffi {
