@@ -88,7 +88,9 @@ material; enabling batch attestation alone does not provision it.
 
 New CC310 Ed25519 and general RNG paths have passed host adapter tests and
 ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
-user's board; Ed25519 execution remains to be verified.
+user's board. Ed25519 public/signature vectors and valid-signature verification
+also passed on hardware; changed-message rejection and the remaining stages
+are still being verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -181,3 +183,14 @@ Previously the wrapper rejected the SHA-512 request during stage 4, substep 1.
 The corrected hooks are cross-checked against host OpenSSL for one-shot and
 streaming inputs around SHA-512 block/padding boundaries; board execution of
 the corrected Ed25519 path is pending.
+
+
+The pinned Nordic Ed25519 PSA verifier maps the core's signature mismatch
+through its RSA error converter, returning a hardware failure instead of
+PSA_ERROR_INVALID_SIGNATURE. The adapter calls the same CC310 core verifier
+with its pinned 0x2f0-byte temporary context and preserves the raw result.
+Only CC_EC_EDW_SIGN_VERIFY_FAILED_ERROR becomes an invalid signature; every
+other nonzero result remains an error. The native C shim regression uses
+a stub core to check success, mismatch, unrelated failure, and buffer/ABI
+arguments without claiming to run CC310 hardware:
+python3 tools/test_cc310_ed25519.py.

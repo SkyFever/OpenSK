@@ -1633,10 +1633,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..fb0510d9
+index 00000000..0d4d0fcb
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,736 @@
+@@ -0,0 +1,752 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -1650,6 +1650,7 @@ index 00000000..fb0510d9
 +#include <cc3xx_psa_mac.h>
 +#include <cc3xx_psa_cipher.h>
 +#include <cc3xx_psa_aead.h>
++#include <mbedtls_extra/mbedtls_cc_ec_mont_edw_error.h>
 +#include <nrf_cc3xx_platform.h>
 +#include <nrf_cc3xx_platform_ctr_drbg.h>
 +#include <nrf_cc3xx_platform_entropy.h>
@@ -1894,12 +1895,27 @@ index 00000000..fb0510d9
 +                                    message, message_size, signature, 64, &size);
 +    return status ? status : (size == 64 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
 +}
++/* Binding to the pinned CC310 core v0.9.19 entry point. Its PSA caller
++ * allocates 0x2f0 bytes for the temporary context and passes these seven
++ * arguments. The exported PSA verifier loses the Ed25519 mismatch code by
++ * sending it to cc3xx_rsa_cc_error_to_psa_error. Keep the raw status instead. */
++uint32_t CC_EcEdwVerify(const uint8_t *signature, size_t signature_size,
++                       const uint8_t *public_key, size_t public_key_size,
++                       const uint8_t *message, size_t message_size, void *temporary);
++
 +int opensk_cc310_ed25519_verify(const uint8_t public_key[32], const uint8_t *message,
 +                               size_t message_size, const uint8_t signature[64])
 +{
-+    psa_key_attributes_t attr = ed25519_attributes(true);
-+    return cc3xx_verify_message(&attr, public_key, 32, PSA_ALG_PURE_EDDSA,
-+                                message, message_size, signature, 64);
++    _Alignas(8) uint32_t temporary[188] = {0};
++    _Static_assert(sizeof(temporary) == 0x2f0, "CC310 Ed25519 temporary ABI");
++    uint32_t result = CC_EcEdwVerify(signature, 64, public_key, 32,
++                                     message_size ? message : NULL, message_size, temporary);
++    for (size_t i = 0; i < sizeof(temporary) / sizeof(temporary[0]); i++) {
++        ((volatile uint32_t *)temporary)[i] = 0;
++    }
++    if (result == 0) return PSA_SUCCESS;
++    if (result == CC_EC_EDW_SIGN_VERIFY_FAILED_ERROR) return PSA_ERROR_INVALID_SIGNATURE;
++    return PSA_ERROR_HARDWARE_FAILURE;
 +}
 +
 +/* Independent, process-lifetime DRBG. Rust's global guard also covers calls
