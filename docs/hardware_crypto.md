@@ -136,3 +136,7 @@ failed stage: 1 TRNG/DRBG, 2 hashes/HMAC, 3 AES-128, 4 Ed25519, 5 X25519,
 active stage color; RTT logs provide the stage and error. The diagnostic image
 has no FIDO event loop; restore the normal OpenSK UF2 after recording its result.
 No hardware execution is implied by successfully building this image.
+
+`aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
+using the CC310 AES-CTR payload stream. Its ciphertext matches authenticated
+CCM for the same key/nonce. It is included in hardware self-test stage 3.

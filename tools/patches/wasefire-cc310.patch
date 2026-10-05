@@ -1200,10 +1200,10 @@ index 00000000..30c8e4b2
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/aes128.rs b/crates/runner-nordic/crates/cc310/src/aes128.rs
 new file mode 100644
-index 00000000..04806b47
+index 00000000..d815ac24
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/aes128.rs
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,238 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! AES-128 primitives. CBC/ECB require whole blocks and use no padding.
 +use alloc::vec;
@@ -1338,6 +1338,20 @@ index 00000000..04806b47
 +    })?;
 +    output.copy_from_slice(&value);
 +    Ok(())
++}
++/// CCM* without an authentication tag. Encryption/decryption use the same CTR operation.
++pub fn ccm_star_no_tag(
++    key: &[u8; 16], nonce: &[u8; 13], input: &[u8], output: &mut [u8],
++) -> Result<(), Error> {
++    // L=2 bounds the message length, and counter block 1 starts the payload stream.
++    if input.len() >= 65536 {
++        return Err(Error::user(0));
++    }
++    let mut counter = [0; 16];
++    counter[0] = 1;
++    counter[1 .. 14].copy_from_slice(nonce);
++    counter[15] = 1;
++    cipher(Mode::Ctr, true, key, &counter, input, output)
 +}
 +pub enum Aes128Ccm {}
 +impl Support<AeadSupport> for Aes128Ccm {
@@ -3872,10 +3886,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..3e3505eb
+index 00000000..952bb23d
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,188 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -3952,6 +3966,9 @@ index 00000000..3e3505eb
 +    aes128::ccm_encrypt(&key, &[0x11; 13], b"aad", &data, &mut cipher, &mut tag)?;
 +    aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear)?;
 +    check(clear == data)?;
++    let mut star = [0; 16];
++    aes128::ccm_star_no_tag(&key, &[0x11; 13], &data, &mut star)?;
++    check(star == cipher)?;
 +    tag[0] ^= 1;
 +    check(aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear).is_err())?;
 +    progress(4);
@@ -4569,10 +4586,10 @@ index 00000000..ad0b9966
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
 new file mode 100644
-index 00000000..2528f50b
+index 00000000..9267dc28
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/tests.rs
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,514 @@
 +// SPDX-License-Identifier: Apache-2.0
 +extern crate std;
 +use std::sync::Mutex;
@@ -5071,6 +5088,21 @@ index 00000000..2528f50b
 +        }
 +    }
 +    assert!(rsa::public(bits, b"invalid DER").is_err());
++}
++
++#[cfg(feature = "aes128")]
++#[test]
++fn ccm_star_no_tag_matches_authenticated_ccm_ciphertext() {
++    let _test = TEST.lock().unwrap();
++    let (key, nonce) = ([0x42; 16], [0x11; 13]);
++    let input = *b"CCM* partial block test";
++    let (mut authenticated, mut plain, mut star) = ([0; 23], [0; 23], [0; 23]);
++    let mut tag = [0; 8];
++    aes128::ccm_encrypt(&key, &nonce, b"aad", &input, &mut authenticated, &mut tag).unwrap();
++    aes128::ccm_star_no_tag(&key, &nonce, &input, &mut star).unwrap();
++    assert_eq!(star, authenticated);
++    aes128::ccm_star_no_tag(&key, &nonce, &star, &mut plain).unwrap();
++    assert_eq!(plain, input);
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/x25519.rs b/crates/runner-nordic/crates/cc310/src/x25519.rs
 new file mode 100644
