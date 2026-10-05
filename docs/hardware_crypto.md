@@ -158,9 +158,9 @@ operation: 1 public derivation, 2 signing, 3 valid-signature verification,
 4 changed-digest rejection, 5 ECDH/value check, 6 fresh key generation,
 7 fresh public derivation. P-192 additionally checks its d=1 public key
 against G at operation 1, then verifies independent fixed signatures before
-operation 3: 8 uses Q=2G, 9 uses Q=G. These signatures use d=2 or d=1, nonce
-k=1, and the SHA-256 prehash 0x42 repeated 32 times. Both references and
-changed-digest rejection were independently verified with host OpenSSL.
+operation 3: 8 uses Q=2G, 9 uses Q=G, 10 uses Q=-G. These signatures use
+d=2, d=1 or d=n-1, nonce k=1, and the SHA-256 prehash 0x42 repeated 32 times.
+The references were independently verified with host OpenSSL.
 For example, red 6 / blue 1 / green 2 means P-192 signing failed.
 Repeated green alone remains the all-stages-passed signal.
 RTT logs also identify the ECC curve and operation separately.
@@ -219,10 +219,25 @@ use CC310 PKA with explicit software SHA-512. The native C regression also
 checks exact seed length, DRBG initialization failure, generation failure
 and short output.
 
-The user's board completed P-192 public derivation and the signing call, but
-failed generated-signature verification (stage 6 / curve 1 / operation 3).
-The diagnostic scalar d=1 gives Q=G. The pinned core verifier precomputes
-G+Q through PkaAddAff; its instruction path has no equal-point branch.
-The independent Q=2G and Q=G signature checks distinguish this suspected
-special case from a general verifier or generated-signature problem.
-Their hardware results are pending; no P-192 verification fix is claimed.
+The user's board passed the independent P-192 Q=2G signature but rejected
+the independently verified Q=G signature (stage 6 / curve 1 / operation 9).
+The pinned core verifier precomputes G+Q through PkaAddAff; its instruction
+path has no equal-point branch. The adapter handles exact Q=G and Q=-G inputs
+by deriving Q'=2Q with CC310 and supplying e'=2e mod n and s'=2s mod n.
+The verification equation is unchanged:
+(e'/s')G + (r/s')Q' = (e/s)G + (r/s)Q.
+This applies to all eight curves and the existing P-256 board API.
+
+Only public input preparation uses C byte arithmetic. The replacement point
+and signature verification still use CC310. Invalid r/s values are rejected
+before reduction, and driver errors propagate. The adjusted ECDSA integer
+uses a 64-byte prehash buffer; this does not compute SHA-512. The encoding
+preserves bits2int truncation, including secp224k1's 225-bit order.
+
+python3 tools/test_cc310_ecc.py exercises the actual C shim against an
+OpenSSL driver stub that refuses bare G and -G inputs. It checks 360 valid
+cases across eight curves, three keys, five digest lengths and three digest
+patterns, plus changed digests, ignored digest suffixes, invalid scalar
+bounds, unchanged inputs and driver/length failures. Curve constants were
+matched to the pinned CC310 ELF domains. This is host validation; execution
+of the corrected basepoint path on the user's board is still pending.
