@@ -129,7 +129,7 @@ index 274b9dda..070c6116 100644
  name = "wasefire-one-of"
  version = "0.1.3-git"
 diff --git a/crates/runner-nordic/Cargo.toml b/crates/runner-nordic/Cargo.toml
-index e944075e..ce7f942d 100644
+index e944075e..8155fe28 100644
 --- a/crates/runner-nordic/Cargo.toml
 +++ b/crates/runner-nordic/Cargo.toml
 @@ -6,6 +6,7 @@ license = "Apache-2.0"
@@ -156,7 +156,7 @@ index e944075e..ce7f942d 100644
 +]
 +
 +cc310-primitives = ["dep:nrf-cc310", "nrf-cc310/hashes", "nrf-cc310/aes128",
-+  "nrf-cc310/chacha20poly1305", "nrf-cc310/x25519", "nrf-cc310/ecc"]
++  "nrf-cc310/chacha20poly1305", "nrf-cc310/x25519", "nrf-cc310/ecc", "nrf-cc310/rsa"]
 +
 +hardware-crypto-aes128-ccm = ["_crypto", "dep:nrf-cc310", "nrf-cc310/aes128",
 +  "wasefire-scheduler/board-api-crypto-aes128-ccm"]
@@ -1043,10 +1043,10 @@ index 00000000..2fbf75db
 +checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 diff --git a/crates/runner-nordic/crates/cc310/Cargo.toml b/crates/runner-nordic/crates/cc310/Cargo.toml
 new file mode 100644
-index 00000000..1a6b1409
+index 00000000..d5e790c4
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/Cargo.toml
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,47 @@
 +[package]
 +name = "wasefire-nrf-cc310"
 +version = "0.1.0"
@@ -1061,6 +1061,7 @@ index 00000000..1a6b1409
 +hashes = []
 +x25519 = []
 +ecc = []
++rsa = []
 +chacha20poly1305 = []
 +aes128 = ["dep:typenum", "wasefire-board-api/api-crypto-aes128-ccm"]
 +ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
@@ -1583,16 +1584,17 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..57fdf65f
+index 00000000..02a52ccb
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,503 @@
+@@ -0,0 +1,554 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
 +#include <stdbool.h>
 +#include <psa/crypto.h>
 +#include <cc3xx_psa_asymmetric_signature.h>
++#include <cc3xx_psa_asymmetric_encryption.h>
 +#include <cc3xx_psa_key_agreement.h>
 +#include <cc3xx_psa_key_generation.h>
 +#include <cc3xx_psa_hash.h>
@@ -2089,6 +2091,56 @@ index 00000000..57fdf65f
 +    int result = cc3xx_key_agreement(&attr, key, key_size, peer, peer_size, output, size,
 +                                     &written, PSA_ALG_ECDH);
 +    return result ? result : (written == size ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++
++static psa_key_attributes_t opensk_rsa_attributes(size_t bits, bool public_key)
++{
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, public_key ? PSA_KEY_TYPE_RSA_PUBLIC_KEY : PSA_KEY_TYPE_RSA_KEY_PAIR);
++    psa_set_key_bits(&attr, bits);
++    return attr;
++}
++int opensk_cc310_rsa_generate(size_t bits, uint8_t *output, size_t size, size_t *written)
++{
++    psa_key_attributes_t attr = opensk_rsa_attributes(bits, false);
++    return cc3xx_generate_key(&attr, output, size, written);
++}
++int opensk_cc310_rsa_public(size_t bits, const uint8_t *key, size_t key_size,
++                            uint8_t *output, size_t size, size_t *written)
++{
++    psa_key_attributes_t attr = opensk_rsa_attributes(bits, false);
++    return cc3xx_export_public_key(&attr, key, key_size, output, size, written);
++}
++int opensk_cc310_rsa_sign(size_t bits, bool pss, const uint8_t *key, size_t key_size,
++                          const uint8_t digest[32], uint8_t *output, size_t size)
++{
++    psa_key_attributes_t attr = opensk_rsa_attributes(bits, false);
++    size_t written = 0;
++    psa_algorithm_t alg = pss ? PSA_ALG_RSA_PSS(PSA_ALG_SHA_256)
++                             : PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256);
++    int result = cc3xx_sign_hash(&attr, key, key_size, alg, digest, 32, output, size, &written);
++    return result ? result : (written == size ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_rsa_verify(size_t bits, bool pss, const uint8_t *key, size_t key_size,
++                            const uint8_t digest[32], const uint8_t *signature, size_t size)
++{
++    psa_key_attributes_t attr = opensk_rsa_attributes(bits, true);
++    psa_algorithm_t alg = pss ? PSA_ALG_RSA_PSS(PSA_ALG_SHA_256)
++                             : PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256);
++    return cc3xx_verify_hash(&attr, key, key_size, alg, digest, 32, signature, size);
++}
++int opensk_cc310_rsa_crypt(size_t bits, bool encrypt, bool oaep, const uint8_t *key,
++                           size_t key_size, const uint8_t *label, size_t label_size,
++                           const uint8_t *input, size_t input_size, uint8_t *output,
++                           size_t capacity, size_t *written)
++{
++    psa_key_attributes_t attr = opensk_rsa_attributes(bits, encrypt);
++    psa_algorithm_t alg = oaep ? PSA_ALG_RSA_OAEP(PSA_ALG_SHA_256) : PSA_ALG_RSA_PKCS1V15_CRYPT;
++    return encrypt
++        ? cc3xx_asymmetric_encrypt(&attr, key, key_size, alg, input, input_size, label, label_size,
++                                    output, capacity, written)
++        : cc3xx_asymmetric_decrypt(&attr, key, key_size, alg, input, input_size, label, label_size,
++                                    output, capacity, written);
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310_config.h b/crates/runner-nordic/crates/cc310/src/cc310_config.h
 new file mode 100644
@@ -2791,10 +2843,10 @@ index 00000000..595cbf43
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/lib.rs b/crates/runner-nordic/crates/cc310/src/lib.rs
 new file mode 100644
-index 00000000..01bb8e02
+index 00000000..72317c53
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/lib.rs
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,356 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! nRF52840 CC310 P-256 adapter. Keys retain Wasefire's big-endian wire format.
 +#![no_std]
@@ -2838,6 +2890,9 @@ index 00000000..01bb8e02
 +
 +#[cfg(feature = "ecc")]
 +pub mod ecc;
++
++#[cfg(feature = "rsa")]
++pub mod rsa;
 +
 +pub enum Impl {}
 +impl Supported for Impl {}
@@ -3310,6 +3365,352 @@ index 00000000..e00097e4
 +        unsafe { opensk_cc310_random(output, size) }
 +    }
 +}
+diff --git a/crates/runner-nordic/crates/cc310/src/rsa.rs b/crates/runner-nordic/crates/cc310/src/rsa.rs
+new file mode 100644
+index 00000000..1dc51217
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/rsa.rs
+@@ -0,0 +1,217 @@
++// SPDX-License-Identifier: Apache-2.0
++//! RSA with PKCS#1 DER keys, PKCS#1 v1.5/PSS signatures and v1.5/OAEP encryption.
++use alloc::vec;
++use alloc::vec::Vec;
++
++use wasefire_board_api::Error;
++use zeroize::{Zeroize, Zeroizing};
++
++use crate::{INVALID_SIGNATURE, driver, length};
++#[derive(Clone, Copy)]
++#[repr(usize)]
++pub enum Bits {
++    B1024 = 1024,
++    B1536 = 1536,
++    B2048 = 2048,
++}
++impl Bits {
++    pub const fn size(self) -> usize {
++        self as usize / 8
++    }
++}
++#[derive(Clone, Copy)]
++pub enum SignaturePadding {
++    Pkcs1v15,
++    Pss,
++}
++#[derive(Clone, Copy)]
++pub enum EncryptionPadding {
++    Pkcs1v15,
++    OaepSha256,
++}
++fn key(value: &[u8]) -> Result<(), Error> {
++    if value.is_empty() || value.len() > 1536 { Err(Error::user(0)) } else { Ok(()) }
++}
++pub fn generate(bits: Bits) -> Result<Zeroizing<Vec<u8>>, Error> {
++    let mut value = Zeroizing::new(vec![0; 1536]);
++    let mut written = 0;
++    // SAFETY: A bounded DER buffer and live length pointer are supplied.
++    driver(|| unsafe {
++        ffi::opensk_cc310_rsa_generate(bits as usize, value.as_mut_ptr(), value.len(), &mut written)
++    })?;
++    if written == 0 || written > value.len() {
++        return Err(Error::world(0));
++    }
++    value[written ..].zeroize();
++    value.truncate(written);
++    Ok(value)
++}
++pub fn public(bits: Bits, private: &[u8]) -> Result<Vec<u8>, Error> {
++    key(private)?;
++    let mut value = vec![0; 512];
++    let mut written = 0;
++    // SAFETY: The DER input and public buffer remain alive through the call.
++    driver(|| unsafe {
++        ffi::opensk_cc310_rsa_public(
++            bits as usize,
++            private.as_ptr(),
++            private.len(),
++            value.as_mut_ptr(),
++            value.len(),
++            &mut written,
++        )
++    })?;
++    if written == 0 || written > value.len() {
++        return Err(Error::world(0));
++    }
++    value[written ..].zeroize();
++    value.truncate(written);
++    Ok(value)
++}
++pub fn sign(
++    bits: Bits, padding: SignaturePadding, private: &[u8], digest: &[u8; 32], output: &mut [u8],
++) -> Result<(), Error> {
++    key(private)?;
++    length(output, bits.size())?;
++    let mut value = Zeroizing::new(vec![0; output.len()]);
++    // SAFETY: DER input, SHA-256 digest and modulus-sized signature are valid buffers.
++    driver(|| unsafe {
++        ffi::opensk_cc310_rsa_sign(
++            bits as usize,
++            matches!(padding, SignaturePadding::Pss),
++            private.as_ptr(),
++            private.len(),
++            digest.as_ptr(),
++            value.as_mut_ptr(),
++            value.len(),
++        )
++    })?;
++    output.copy_from_slice(&value);
++    Ok(())
++}
++pub fn verify(
++    bits: Bits, padding: SignaturePadding, public: &[u8], digest: &[u8; 32], signature: &[u8],
++) -> Result<bool, Error> {
++    key(public)?;
++    length(signature, bits.size())?;
++    let mut valid = true;
++    driver(|| {
++        // SAFETY: DER input, digest and signature lengths were checked.
++        let result = unsafe {
++            ffi::opensk_cc310_rsa_verify(
++                bits as usize,
++                matches!(padding, SignaturePadding::Pss),
++                public.as_ptr(),
++                public.len(),
++                digest.as_ptr(),
++                signature.as_ptr(),
++                signature.len(),
++            )
++        };
++        if result == INVALID_SIGNATURE {
++            valid = false;
++            0
++        } else {
++            result
++        }
++    })?;
++    Ok(valid)
++}
++pub fn encrypt(
++    bits: Bits, padding: EncryptionPadding, public: &[u8], label: &[u8], input: &[u8],
++    output: &mut [u8],
++) -> Result<(), Error> {
++    key(public)?;
++    length(output, bits.size())?;
++    let oaep = matches!(padding, EncryptionPadding::OaepSha256);
++    if (!oaep && !label.is_empty()) || input.len() > bits.size() - if oaep { 66 } else { 11 } {
++        return Err(Error::user(0));
++    }
++    let mut value = Zeroizing::new(vec![0; output.len()]);
++    let mut written = 0;
++    // SAFETY: Sized modulus output and bounded plaintext/label stay valid through the call.
++    driver(|| unsafe {
++        ffi::opensk_cc310_rsa_crypt(
++            bits as usize,
++            true,
++            oaep,
++            public.as_ptr(),
++            public.len(),
++            label.as_ptr(),
++            label.len(),
++            input.as_ptr(),
++            input.len(),
++            value.as_mut_ptr(),
++            value.len(),
++            &mut written,
++        )
++    })?;
++    if written != value.len() {
++        return Err(Error::world(0));
++    }
++    output.copy_from_slice(&value);
++    Ok(())
++}
++pub fn decrypt(
++    bits: Bits, padding: EncryptionPadding, private: &[u8], label: &[u8], input: &[u8],
++) -> Result<Zeroizing<Vec<u8>>, Error> {
++    key(private)?;
++    length(input, bits.size())?;
++    let oaep = matches!(padding, EncryptionPadding::OaepSha256);
++    if !oaep && !label.is_empty() {
++        return Err(Error::user(0));
++    }
++    let mut value = Zeroizing::new(vec![0; bits.size()]);
++    let mut written = 0;
++    // SAFETY: Ciphertext is modulus-sized; unverified plaintext remains in a wiped temporary.
++    driver(|| unsafe {
++        ffi::opensk_cc310_rsa_crypt(
++            bits as usize,
++            false,
++            oaep,
++            private.as_ptr(),
++            private.len(),
++            label.as_ptr(),
++            label.len(),
++            input.as_ptr(),
++            input.len(),
++            value.as_mut_ptr(),
++            value.len(),
++            &mut written,
++        )
++    })?;
++    if written > value.len() {
++        return Err(Error::world(0));
++    }
++    value[written ..].zeroize();
++    value.truncate(written);
++    Ok(value)
++}
++#[cfg(not(test))]
++mod ffi {
++    unsafe extern "C" {
++        pub fn opensk_cc310_rsa_generate(
++            bits: usize, output: *mut u8, size: usize, written: *mut usize,
++        ) -> i32;
++        pub fn opensk_cc310_rsa_public(
++            bits: usize, key: *const u8, key_size: usize, output: *mut u8, size: usize,
++            written: *mut usize,
++        ) -> i32;
++        pub fn opensk_cc310_rsa_sign(
++            bits: usize, pss: bool, key: *const u8, key_size: usize, digest: *const u8,
++            output: *mut u8, size: usize,
++        ) -> i32;
++        pub fn opensk_cc310_rsa_verify(
++            bits: usize, pss: bool, key: *const u8, key_size: usize, digest: *const u8,
++            sig: *const u8, size: usize,
++        ) -> i32;
++        pub fn opensk_cc310_rsa_crypt(
++            bits: usize, encrypt: bool, oaep: bool, key: *const u8, key_size: usize,
++            label: *const u8, label_size: usize, input: *const u8, input_size: usize,
++            output: *mut u8, capacity: usize, written: *mut usize,
++        ) -> i32;
++    }
++}
++#[cfg(test)]
++#[path = "rsa_model.rs"]
++mod ffi;
+diff --git a/crates/runner-nordic/crates/cc310/src/rsa_model.rs b/crates/runner-nordic/crates/cc310/src/rsa_model.rs
+new file mode 100644
+index 00000000..68547d5c
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/rsa_model.rs
+@@ -0,0 +1,117 @@
++// SPDX-License-Identifier: Apache-2.0
++#![allow(clippy::too_many_arguments)]
++use openssl::md::Md;
++use openssl::pkey::PKey;
++use openssl::pkey_ctx::PkeyCtx;
++use openssl::rsa::{Padding, Rsa};
++use openssl::sign::RsaPssSaltlen;
++pub unsafe fn opensk_cc310_rsa_generate(
++    bits: usize, output: *mut u8, size: usize, written: *mut usize,
++) -> i32 {
++    let value = Rsa::generate(bits as u32).unwrap().private_key_to_der().unwrap();
++    let output = unsafe { core::slice::from_raw_parts_mut(output, size) };
++    output[.. value.len()].copy_from_slice(&value);
++    unsafe { written.write(value.len()) };
++    0
++}
++pub unsafe fn opensk_cc310_rsa_public(
++    _bits: usize, key: *const u8, key_size: usize, output: *mut u8, size: usize,
++    written: *mut usize,
++) -> i32 {
++    let Ok(key) = Rsa::private_key_from_der(unsafe { core::slice::from_raw_parts(key, key_size) })
++    else {
++        return -135;
++    };
++    let value = key.public_key_to_der_pkcs1().unwrap();
++    let output = unsafe { core::slice::from_raw_parts_mut(output, size) };
++    output[.. value.len()].copy_from_slice(&value);
++    unsafe { written.write(value.len()) };
++    0
++}
++pub unsafe fn opensk_cc310_rsa_sign(
++    _bits: usize, pss: bool, key: *const u8, key_size: usize, digest: *const u8, output: *mut u8,
++    size: usize,
++) -> i32 {
++    let key = PKey::from_rsa(
++        Rsa::private_key_from_der(unsafe { core::slice::from_raw_parts(key, key_size) }).unwrap(),
++    )
++    .unwrap();
++    let mut ctx = PkeyCtx::new(&key).unwrap();
++    ctx.sign_init().unwrap();
++    ctx.set_rsa_padding(if pss { Padding::PKCS1_PSS } else { Padding::PKCS1 }).unwrap();
++    ctx.set_signature_md(Md::sha256()).unwrap();
++    if pss {
++        ctx.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH).unwrap();
++    }
++    ctx.sign(
++        unsafe { core::slice::from_raw_parts(digest, 32) },
++        Some(unsafe { core::slice::from_raw_parts_mut(output, size) }),
++    )
++    .unwrap();
++    0
++}
++pub unsafe fn opensk_cc310_rsa_verify(
++    _bits: usize, pss: bool, key: *const u8, key_size: usize, digest: *const u8, sig: *const u8,
++    size: usize,
++) -> i32 {
++    let key = PKey::from_rsa(
++        Rsa::public_key_from_der_pkcs1(unsafe { core::slice::from_raw_parts(key, key_size) })
++            .unwrap(),
++    )
++    .unwrap();
++    let mut ctx = PkeyCtx::new(&key).unwrap();
++    ctx.verify_init().unwrap();
++    ctx.set_rsa_padding(if pss { Padding::PKCS1_PSS } else { Padding::PKCS1 }).unwrap();
++    ctx.set_signature_md(Md::sha256()).unwrap();
++    if pss {
++        ctx.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH).unwrap();
++    }
++    match ctx.verify(unsafe { core::slice::from_raw_parts(digest, 32) }, unsafe {
++        core::slice::from_raw_parts(sig, size)
++    }) {
++        Ok(true) => 0,
++        _ => -149,
++    }
++}
++pub unsafe fn opensk_cc310_rsa_crypt(
++    _bits: usize, encrypt: bool, oaep: bool, key: *const u8, key_size: usize, label: *const u8,
++    label_size: usize, input: *const u8, input_size: usize, output: *mut u8, capacity: usize,
++    written: *mut usize,
++) -> i32 {
++    let key = unsafe { core::slice::from_raw_parts(key, key_size) };
++    let label = unsafe { core::slice::from_raw_parts(label, label_size) };
++    let input = unsafe { core::slice::from_raw_parts(input, input_size) };
++    let output = unsafe { core::slice::from_raw_parts_mut(output, capacity) };
++    macro_rules! setup {
++        ($ctx:ident) => {{
++            $ctx.set_rsa_padding(if oaep { Padding::PKCS1_OAEP } else { Padding::PKCS1 }).unwrap();
++            if oaep {
++                $ctx.set_rsa_oaep_md(Md::sha256()).unwrap();
++                $ctx.set_rsa_mgf1_md(Md::sha256()).unwrap();
++                if !label.is_empty() {
++                    $ctx.set_rsa_oaep_label(label).unwrap();
++                }
++            }
++        }};
++    }
++    let result = if encrypt {
++        let key = PKey::from_rsa(Rsa::public_key_from_der_pkcs1(key).unwrap()).unwrap();
++        let mut ctx = PkeyCtx::new(&key).unwrap();
++        ctx.encrypt_init().unwrap();
++        setup!(ctx);
++        ctx.encrypt(input, Some(output))
++    } else {
++        let key = PKey::from_rsa(Rsa::private_key_from_der(key).unwrap()).unwrap();
++        let mut ctx = PkeyCtx::new(&key).unwrap();
++        ctx.decrypt_init().unwrap();
++        setup!(ctx);
++        ctx.decrypt(input, Some(output))
++    };
++    match result {
++        Ok(size) => {
++            unsafe { written.write(size) };
++            0
++        }
++        Err(_) => -149,
++    }
++}
 diff --git a/crates/runner-nordic/crates/cc310/src/symmetric.rs b/crates/runner-nordic/crates/cc310/src/symmetric.rs
 new file mode 100644
 index 00000000..f539f82a
@@ -3579,10 +3980,10 @@ index 00000000..ad0b9966
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
 new file mode 100644
-index 00000000..e4b1b35a
+index 00000000..2528f50b
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/tests.rs
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,499 @@
 +// SPDX-License-Identifier: Apache-2.0
 +extern crate std;
 +use std::sync::Mutex;
@@ -4042,6 +4443,45 @@ index 00000000..e4b1b35a
 +        assert!(ecc::shared(curve, &key, &public, &mut shared).is_err());
 +        assert_eq!(shared, alloc::vec![0xa5;size]);
 +    }
++}
++
++#[cfg(feature = "rsa")]
++#[test]
++fn rsa2048_pkcs1_pss_oaep_and_invalid_signature() {
++    use rsa::{self, Bits, EncryptionPadding, SignaturePadding};
++    let _test = TEST.lock().unwrap();
++    let bits = Bits::B2048;
++    let private = rsa::generate(bits).unwrap();
++    let public = rsa::public(bits, &private).unwrap();
++    for padding in [SignaturePadding::Pkcs1v15, SignaturePadding::Pss] {
++        let mut signature = [0; 256];
++        rsa::sign(bits, padding, &private, &[0x42; 32], &mut signature).unwrap();
++        assert!(rsa::verify(bits, padding, &public, &[0x42; 32], &signature).unwrap());
++        assert!(!rsa::verify(bits, padding, &public, &[0x43; 32], &signature).unwrap());
++        signature[0] ^= 1;
++        assert!(!rsa::verify(bits, padding, &public, &[0x42; 32], &signature).unwrap());
++    }
++    for (padding, label) in [
++        (EncryptionPadding::Pkcs1v15, b"".as_slice()),
++        (EncryptionPadding::OaepSha256, b"label".as_slice()),
++    ] {
++        let mut ciphertext = [0; 256];
++        rsa::encrypt(bits, padding, &public, label, b"OpenSK RSA", &mut ciphertext).unwrap();
++        let clear = rsa::decrypt(bits, padding, &private, label, &ciphertext).unwrap();
++        assert_eq!(clear.as_slice(), b"OpenSK RSA");
++        ciphertext[0] ^= 1;
++        let changed = rsa::decrypt(bits, padding, &private, label, &ciphertext);
++        match padding {
++            EncryptionPadding::OaepSha256 => assert!(changed.is_err()),
++            EncryptionPadding::Pkcs1v15 => {
++                // OpenSSL 3.2+ may return random plaintext for invalid v1.5 padding.
++                if let Ok(value) = changed {
++                    assert_ne!(value.as_slice(), b"OpenSK RSA");
++                }
++            }
++        }
++    }
++    assert!(rsa::public(bits, b"invalid DER").is_err());
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/x25519.rs b/crates/runner-nordic/crates/cc310/src/x25519.rs
 new file mode 100644

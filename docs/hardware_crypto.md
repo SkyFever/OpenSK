@@ -113,3 +113,9 @@ The pinned PSA binary rejects 160-bit and P-521 domain mappings; these curves
 are not exposed. SHA-384/SHA-512 digests may be supplied to ECDSA externally,
 but their hash computation is not a CC310 hardware path. Hardware execution
 of the additional curves is pending. Host tests require OpenSSL development headers.
+
+The `rsa` adapter feature provides 1024/1536/2048-bit key generation,
+PKCS#1 DER public/private keys, SHA-256 PKCS#1 v1.5/PSS signatures and
+PKCS#1 v1.5/OAEP-SHA256 encryption/decryption. Secret DER and plaintext
+buffers are zeroized. RSA-2048 host OpenSSL round trips and rejection checks
+pass; physical-device RSA execution is pending.
