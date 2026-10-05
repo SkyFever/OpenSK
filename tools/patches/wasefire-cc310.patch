@@ -1628,10 +1628,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..e7b894b5
+index 00000000..22b795a0
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,672 @@
+@@ -0,0 +1,674 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -2071,6 +2071,8 @@ index 00000000..e7b894b5
 +
 +static psa_key_attributes_t opensk_ecc_attributes(uint32_t curve, bool public_key)
 +{
++    /* This pinned Nordic mapper uses field bits, including 224 for secp224k1.
++     * Its core uses the domain order for 29-byte private/signature scalars. */
 +    static const uint16_t bits[] = {192, 224, 256, 384, 192, 224, 256, 256};
 +    psa_ecc_family_t family = curve < 4 ? PSA_ECC_FAMILY_SECP_R1
 +        : (curve < 7 ? PSA_ECC_FAMILY_SECP_K1 : PSA_ECC_FAMILY_BRAINPOOL_P_R1);
@@ -2445,10 +2447,10 @@ index 00000000..c0941963
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/ecc.rs b/crates/runner-nordic/crates/cc310/src/ecc.rs
 new file mode 100644
-index 00000000..900cb410
+index 00000000..eae5c5c0
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/ecc.rs
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,175 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Additional Weierstrass curves exposed by the pinned Nordic PSA driver.
 +use alloc::vec;
@@ -2470,7 +2472,8 @@ index 00000000..900cb410
 +    BrainpoolP256r1,
 +}
 +impl Curve {
-+    pub const fn scalar_size(self) -> usize {
++    /// Coordinate width in bytes (also the ECDH output width).
++    pub const fn coordinate_size(self) -> usize {
 +        match self {
 +            Self::P192 | Self::Secp192k1 => 24,
 +            Self::P224 | Self::Secp224k1 => 28,
@@ -2478,8 +2481,12 @@ index 00000000..900cb410
 +            _ => 32,
 +        }
 +    }
++    /// Private and ECDSA scalar width. secp224k1 has a 225-bit order.
++    pub const fn scalar_size(self) -> usize {
++        if matches!(self, Self::Secp224k1) { 29 } else { self.coordinate_size() }
++    }
 +    pub const fn public_size(self) -> usize {
-+        1 + 2 * self.scalar_size()
++        1 + 2 * self.coordinate_size()
 +    }
 +}
 +fn private(curve: Curve, value: &[u8]) -> Result<(), Error> {
@@ -2578,7 +2585,7 @@ index 00000000..900cb410
 +pub fn shared(curve: Curve, key: &[u8], peer: &[u8], output: &mut [u8]) -> Result<(), Error> {
 +    private(curve, key)?;
 +    point(curve, peer)?;
-+    length(output, curve.scalar_size())?;
++    length(output, curve.coordinate_size())?;
 +    let mut value = Zeroizing::new(vec![0; output.len()]);
 +    // SAFETY: Input scalars, SEC1 peer and shared-secret output have exact sizes.
 +    driver(|| unsafe {
@@ -3932,10 +3939,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..3ff22c8f
+index 00000000..0e094f8e
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,201 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4071,9 +4078,10 @@ index 00000000..3ff22c8f
 +        ecc::sign(curve, &key, &[0x42; 32], &mut sig)?;
 +        check(ecc::verify(curve, &pubkey, &[0x42; 32], &sig)?)?;
 +        check(!ecc::verify(curve, &pubkey, &[0x43; 32], &sig)?)?;
-+        let mut secret = zeroize::Zeroizing::new(vec![0; size]);
++        let coordinate = curve.coordinate_size();
++        let mut secret = zeroize::Zeroizing::new(vec![0; coordinate]);
 +        ecc::shared(curve, &key, &pubkey, &mut secret)?;
-+        check(secret.as_slice() == &pubkey[1 .. 1 + size])?;
++        check(secret.as_slice() == &pubkey[1 .. 1 + coordinate])?;
 +        ecc::generate(curve, &mut key)?;
 +        ecc::public(curve, &key, &mut pubkey)?;
 +    }
@@ -4675,10 +4683,10 @@ index 00000000..ad0b9966
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
 new file mode 100644
-index 00000000..9267dc28
+index 00000000..85ceef49
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/tests.rs
-@@ -0,0 +1,514 @@
+@@ -0,0 +1,524 @@
 +// SPDX-License-Identifier: Apache-2.0
 +extern crate std;
 +use std::sync::Mutex;
@@ -5130,13 +5138,23 @@ index 00000000..9267dc28
 +        ecc::sign(curve, &key, &[0x42; 32], &mut sig).unwrap();
 +        assert!(ecc::verify(curve, &public, &[0x42; 32], &sig).unwrap());
 +        assert!(!ecc::verify(curve, &public, &[0x43; 32], &sig).unwrap());
-+        let mut shared = alloc::vec![0;size];
++        let coordinate = curve.coordinate_size();
++        let mut shared = alloc::vec![0;coordinate];
 +        ecc::shared(curve, &key, &public, &mut shared).unwrap();
-+        assert_eq!(&shared, &public[1 .. 1 + size]);
++        assert_eq!(&shared, &public[1 .. 1 + coordinate]);
 +        shared.fill(0xa5);
 +        public[0] = 0;
 +        assert!(ecc::shared(curve, &key, &public, &mut shared).is_err());
-+        assert_eq!(shared, alloc::vec![0xa5;size]);
++        assert_eq!(shared, alloc::vec![0xa5;coordinate]);
++        if matches!(curve, Curve::Secp224k1) {
++            // 2^224 is valid but cannot be represented in a 28-byte scalar.
++            assert_eq!((size, coordinate, public.len(), sig.len()), (29, 28, 57, 58));
++            key.fill(0);
++            key[0] = 1;
++            ecc::public(curve, &key, &mut public).unwrap();
++            ecc::sign(curve, &key, &[0x42; 32], &mut sig).unwrap();
++            assert!(ecc::verify(curve, &public, &[0x42; 32], &sig).unwrap());
++        }
 +    }
 +}
 +
