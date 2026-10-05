@@ -157,7 +157,7 @@ if [[ "$CRYPTO_TRACE" == true ]]; then
 fi
 if [[ ",$MDK_FEATURES," == *,ed25519,* ]]; then
   if [[ "$CRYPTO" == cc310 ]]; then
-    RUNNER_CRYPTO_FEATURES+=",oberon-ed25519"
+    RUNNER_CRYPTO_FEATURES+=",hardware-crypto-ed25519"
   else
     RUNNER_CRYPTO_FEATURES+=",software-crypto-ed25519"
   fi

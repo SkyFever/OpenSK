@@ -2,14 +2,14 @@
 
 The `--crypto=cc310` build uses Nordic CC310 for P-256, SHA-256 and
 HMAC-SHA256. AES-256-CBC keeps the existing software backend because CC310
-supports only 128-bit AES keys. Optional Ed25519 uses Oberon software.
+supports only 128-bit AES keys. Optional Ed25519 uses the CC310 driver.
 
 | Operation | `software` | `cc310` |
 | --- | --- | --- |
 | P-256 keygen, public key, ECDSA, ECDH | RustCrypto | CC310 |
 | SHA-256, HMAC-SHA256 | RustCrypto | CC310 |
 | AES-256-CBC | RustCrypto | RustCrypto |
-| Optional Ed25519 | RustCrypto | Oberon software |
+| Optional Ed25519 | RustCrypto | CC310 |
 
 This integrates the operations used by OpenSK; it does not expose every
 CryptoCell algorithm. OpenSK's general RNG uses the nRF RNG peripheral.

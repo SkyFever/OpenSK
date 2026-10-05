@@ -129,7 +129,7 @@ index 274b9dda..070c6116 100644
  name = "wasefire-one-of"
  version = "0.1.3-git"
 diff --git a/crates/runner-nordic/Cargo.toml b/crates/runner-nordic/Cargo.toml
-index e944075e..6ec308da 100644
+index e944075e..11254f6f 100644
 --- a/crates/runner-nordic/Cargo.toml
 +++ b/crates/runner-nordic/Cargo.toml
 @@ -6,6 +6,7 @@ license = "Apache-2.0"
@@ -155,7 +155,7 @@ index e944075e..6ec308da 100644
 +  "wasefire-scheduler/board-api-crypto-p256-ecdsa",
 +]
 +
-+oberon-ed25519 = ["_crypto", "dep:nrf-cc310", "nrf-cc310/oberon-ed25519",
++hardware-crypto-ed25519 = ["_crypto", "dep:nrf-cc310", "nrf-cc310/ed25519",
 +  "wasefire-scheduler/board-api-crypto-ed25519"]
 +
 +# CC310 supports only AES-128. OpenSK requires AES-256-CBC, so select the
@@ -760,7 +760,7 @@ index 00000000..d120b7b6
 +checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 diff --git a/crates/runner-nordic/crates/cc310/Cargo.toml b/crates/runner-nordic/crates/cc310/Cargo.toml
 new file mode 100644
-index 00000000..8e537b58
+index 00000000..14b2efbb
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/Cargo.toml
 @@ -0,0 +1,32 @@
@@ -774,7 +774,7 @@ index 00000000..8e537b58
 +[features]
 +# Optional board LED tracing; absent from normal firmware.
 +trace = []
-+oberon-ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
++ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
 +symmetric = [
 +  "dep:digest", "dep:typenum",
 +  "wasefire-board-api/api-crypto-hmac-sha256",
@@ -798,10 +798,10 @@ index 00000000..8e537b58
 +rust.unsafe_op_in_unsafe_fn = "deny"
 diff --git a/crates/runner-nordic/crates/cc310/build.rs b/crates/runner-nordic/crates/cc310/build.rs
 new file mode 100644
-index 00000000..c3d5d6db
+index 00000000..c35b046d
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/build.rs
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,77 @@
 +// SPDX-License-Identifier: Apache-2.0
 +use std::path::PathBuf;
 +use std::process::Command;
@@ -873,12 +873,6 @@ index 00000000..c3d5d6db
 +        println!("cargo::rustc-link-lib=static={name}");
 +        println!("cargo::rerun-if-changed={}", path.display());
 +    }
-+    if std::env::var_os("CARGO_FEATURE_OBERON_ED25519").is_some() {
-+        let path = nordic.join("nrf_oberon/lib/cortex-m4/soft-float");
-+        assert!(path.join("liboberon_3.0.15.a").is_file(), "missing pinned Oberon archive");
-+        println!("cargo::rustc-link-search=native={}", path.display());
-+        println!("cargo::rustc-link-lib=static=oberon_3.0.15");
-+    }
 +    for name in ["OPENSK_CC310_DIR", "CC310_CC", "CC310_AR"] {
 +        println!("cargo::rerun-if-env-changed={name}");
 +    }
@@ -887,10 +881,10 @@ index 00000000..c3d5d6db
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..c0e46d7e
+index 00000000..6cfd36aa
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,220 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -1072,6 +1066,45 @@ index 00000000..c0e46d7e
 +{
 +    return cc3xx_mac_abort(operation);
 +}
++
++static psa_key_attributes_t ed25519_attributes(bool public_key)
++{
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, public_key ? PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_TWISTED_EDWARDS)
++                                      : PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_TWISTED_EDWARDS));
++    psa_set_key_bits(&attr, 255);
++    return attr;
++}
++int opensk_cc310_ed25519_generate(uint8_t seed[32])
++{
++    psa_key_attributes_t attr = ed25519_attributes(false);
++    size_t size = 0;
++    int status = cc3xx_generate_key(&attr, seed, 32, &size);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_ed25519_public(const uint8_t seed[32], uint8_t public_key[32])
++{
++    psa_key_attributes_t attr = ed25519_attributes(false);
++    size_t size = 0;
++    int status = cc3xx_export_public_key(&attr, seed, 32, public_key, 32, &size);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_ed25519_sign(const uint8_t seed[32], const uint8_t *message, size_t message_size,
++                             uint8_t signature[64])
++{
++    psa_key_attributes_t attr = ed25519_attributes(false);
++    size_t size = 0;
++    int status = cc3xx_sign_message(&attr, seed, 32, PSA_ALG_PURE_EDDSA,
++                                    message, message_size, signature, 64, &size);
++    return status ? status : (size == 64 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_ed25519_verify(const uint8_t public_key[32], const uint8_t *message,
++                               size_t message_size, const uint8_t signature[64])
++{
++    psa_key_attributes_t attr = ed25519_attributes(true);
++    return cc3xx_verify_message(&attr, public_key, 32, PSA_ALG_PURE_EDDSA,
++                                message, message_size, signature, 64);
++}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310_config.h b/crates/runner-nordic/crates/cc310/src/cc310_config.h
 new file mode 100644
 index 00000000..2df14eef
@@ -1088,19 +1121,19 @@ index 00000000..2df14eef
 +#endif
 diff --git a/crates/runner-nordic/crates/cc310/src/ed25519.rs b/crates/runner-nordic/crates/cc310/src/ed25519.rs
 new file mode 100644
-index 00000000..406a4cc4
+index 00000000..3c4caa98
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/ed25519.rs
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,155 @@
 +// SPDX-License-Identifier: Apache-2.0
-+//! Optional Oberon Ed25519 software implementation from the pinned Nordic archive.
++//! CC310 Ed25519 adapter. Private keys retain their existing 32-byte seed encoding.
 +use core::alloc::Layout;
 +
 +use wasefire_board_api::crypto::ed25519::Api;
 +use wasefire_board_api::{Error, Supported};
 +use zeroize::{Zeroize, Zeroizing};
 +
-+use crate::{length, status};
++use crate::{INVALID_SIGNATURE, driver, length};
 +
 +pub enum Ed25519 {}
 +impl Supported for Ed25519 {}
@@ -1111,35 +1144,36 @@ index 00000000..406a4cc4
 +    fn generate(output: &mut [u8]) -> Result<(), Error> {
 +        length(output, 32)?;
 +        let mut seed = Zeroizing::new([0; 32]);
-+        // SAFETY: The runner's existing RNG receives an exactly 32-byte writable buffer.
-+        status(unsafe { ffi::psa_generate_random(seed.as_mut_ptr(), 32) })?;
++        // SAFETY: The serialized driver receives a writable 32-byte seed buffer.
++        driver(|| unsafe { ffi::opensk_cc310_ed25519_generate(seed.as_mut_ptr()) })?;
 +        output.copy_from_slice(seed.as_ref());
 +        Ok(())
 +    }
 +    fn public(private: &[u8], public: &mut [u8]) -> Result<(), Error> {
 +        length(private, 32)?;
 +        length(public, 32)?;
-+        // SAFETY: Both buffers have the exact lengths specified by ocrypto_ed25519.h.
-+        unsafe { ffi::ocrypto_ed25519_public_key(public.as_mut_ptr(), private.as_ptr()) };
++        let mut value = [0; 32];
++        // SAFETY: Both buffers have the exact lengths required by the C shim.
++        driver(|| unsafe {
++            ffi::opensk_cc310_ed25519_public(private.as_ptr(), value.as_mut_ptr())
++        })?;
++        public.copy_from_slice(&value);
 +        Ok(())
 +    }
 +    fn sign(
 +        private: &[u8], message: &[u8], r: &mut [u8; 32], s: &mut [u8; 32],
 +    ) -> Result<(), Error> {
 +        length(private, 32)?;
-+        let mut public = [0; 32];
-+        Self::public(private, &mut public)?;
 +        let mut signature = Zeroizing::new([0; 64]);
-+        // SAFETY: Every buffer has the length specified by the published API.
-+        unsafe {
-+            ffi::ocrypto_ed25519_sign(
-+                signature.as_mut_ptr(),
++        // SAFETY: All buffers remain alive throughout the synchronous driver call.
++        driver(|| unsafe {
++            ffi::opensk_cc310_ed25519_sign(
++                private.as_ptr(),
 +                message.as_ptr(),
 +                message.len(),
-+                private.as_ptr(),
-+                public.as_ptr(),
++                signature.as_mut_ptr(),
 +            )
-+        };
++        })?;
 +        r.copy_from_slice(&signature[.. 32]);
 +        s.copy_from_slice(&signature[32 ..]);
 +        Ok(())
@@ -1149,19 +1183,25 @@ index 00000000..406a4cc4
 +        let mut signature = [0; 64];
 +        signature[.. 32].copy_from_slice(r);
 +        signature[32 ..].copy_from_slice(s);
-+        // SAFETY: Every buffer has the length specified by the published API.
-+        match unsafe {
-+            ffi::ocrypto_ed25519_verify(
-+                signature.as_ptr(),
-+                message.as_ptr(),
-+                message.len(),
-+                public.as_ptr(),
-+            )
-+        } {
-+            0 => Ok(true),
-+            -1 => Ok(false),
-+            _ => Err(Error::world(0)),
-+        }
++        let mut valid = true;
++        driver(|| {
++            // SAFETY: Every buffer has the exact length required by the C shim.
++            let result = unsafe {
++                ffi::opensk_cc310_ed25519_verify(
++                    public.as_ptr(),
++                    message.as_ptr(),
++                    message.len(),
++                    signature.as_ptr(),
++                )
++            };
++            if result == INVALID_SIGNATURE {
++                valid = false;
++                0
++            } else {
++                result
++            }
++        })?;
++        Ok(valid)
 +    }
 +    fn drop_private(private: &mut [u8]) -> Result<(), Error> {
 +        length(private, 32)?;
@@ -1191,55 +1231,58 @@ index 00000000..406a4cc4
 +        Ok(())
 +    }
 +}
++
 +#[cfg(not(test))]
 +mod ffi {
 +    unsafe extern "C" {
-+        pub fn psa_generate_random(output: *mut u8, size: usize) -> i32;
-+        pub fn ocrypto_ed25519_public_key(public: *mut u8, private: *const u8);
-+        pub fn ocrypto_ed25519_sign(
-+            signature: *mut u8, message: *const u8, size: usize, private: *const u8,
-+            public: *const u8,
-+        );
-+        pub fn ocrypto_ed25519_verify(
-+            signature: *const u8, message: *const u8, size: usize, public: *const u8,
++        pub fn opensk_cc310_ed25519_generate(seed: *mut u8) -> i32;
++        pub fn opensk_cc310_ed25519_public(seed: *const u8, public: *mut u8) -> i32;
++        pub fn opensk_cc310_ed25519_sign(
++            seed: *const u8, message: *const u8, size: usize, signature: *mut u8,
++        ) -> i32;
++        pub fn opensk_cc310_ed25519_verify(
++            public: *const u8, message: *const u8, size: usize, signature: *const u8,
 +        ) -> i32;
 +    }
 +}
 +#[cfg(test)]
 +mod ffi {
-+    use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-+    pub unsafe fn psa_generate_random(output: *mut u8, size: usize) -> i32 {
-+        unsafe { core::ptr::write_bytes(output, 0x42, size) };
++    use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
++    pub unsafe fn opensk_cc310_ed25519_generate(output: *mut u8) -> i32 {
++        unsafe { core::ptr::write_bytes(output, 0x42, 32) };
 +        0
 +    }
-+    pub unsafe fn ocrypto_ed25519_public_key(public: *mut u8, private: *const u8) {
++    pub unsafe fn opensk_cc310_ed25519_public(private: *const u8, public: *mut u8) -> i32 {
 +        let key = SigningKey::from_bytes(unsafe { &*private.cast() });
 +        unsafe {
 +            core::ptr::copy_nonoverlapping(key.verifying_key().as_bytes().as_ptr(), public, 32)
 +        };
++        0
 +    }
-+    pub unsafe fn ocrypto_ed25519_sign(
-+        signature: *mut u8, message: *const u8, size: usize, private: *const u8, _public: *const u8,
-+    ) {
++    pub unsafe fn opensk_cc310_ed25519_sign(
++        private: *const u8, message: *const u8, size: usize, signature: *mut u8,
++    ) -> i32 {
 +        let key = SigningKey::from_bytes(unsafe { &*private.cast() });
 +        let value = key.sign(unsafe { core::slice::from_raw_parts(message, size) });
 +        unsafe { core::ptr::copy_nonoverlapping(value.to_bytes().as_ptr(), signature, 64) };
++        0
 +    }
-+    pub unsafe fn ocrypto_ed25519_verify(
-+        signature: *const u8, message: *const u8, size: usize, public: *const u8,
++    pub unsafe fn opensk_cc310_ed25519_verify(
++        public: *const u8, message: *const u8, size: usize, signature: *const u8,
 +    ) -> i32 {
-+        let Ok(key) = VerifyingKey::from_bytes(unsafe { &*public.cast() }) else { return -1 };
++        let Ok(key) = VerifyingKey::from_bytes(unsafe { &*public.cast() }) else { return -149 };
 +        let value = Signature::from_bytes(unsafe { &*signature.cast() });
-+        if key.verify(unsafe { core::slice::from_raw_parts(message, size) }, &value).is_ok() {
++        if key.verify_strict(unsafe { core::slice::from_raw_parts(message, size) }, &value).is_ok()
++        {
 +            0
 +        } else {
-+            -1
++            -149
 +        }
 +    }
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/lib.rs b/crates/runner-nordic/crates/cc310/src/lib.rs
 new file mode 100644
-index 00000000..63d1dafc
+index 00000000..2496f427
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/lib.rs
 @@ -0,0 +1,333 @@
@@ -1262,9 +1305,9 @@ index 00000000..63d1dafc
 +pub use symmetric::{HmacSha256, Sha256};
 +use zeroize::{Zeroize, Zeroizing};
 +
-+#[cfg(feature = "oberon-ed25519")]
++#[cfg(feature = "ed25519")]
 +mod ed25519;
-+#[cfg(feature = "oberon-ed25519")]
++#[cfg(feature = "ed25519")]
 +pub use ed25519::Ed25519;
 +
 +pub enum Impl {}
@@ -1925,10 +1968,10 @@ index 00000000..ad0b9966
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
 new file mode 100644
-index 00000000..2b425d43
+index 00000000..bde1f541
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/tests.rs
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,276 @@
 +// SPDX-License-Identifier: Apache-2.0
 +extern crate std;
 +use std::sync::Mutex;
@@ -2161,7 +2204,7 @@ index 00000000..2b425d43
 +    assert!(ctx.finalize_into(&mut digest::Output::<Sha256>::default()).is_err());
 +}
 +
-+#[cfg(feature = "oberon-ed25519")]
++#[cfg(feature = "ed25519")]
 +#[test]
 +fn rfc8032_ed25519_seed_signature_and_roundtrip() {
 +    use wasefire_board_api::crypto::ed25519::Api;
@@ -2186,8 +2229,27 @@ index 00000000..2b425d43
 +    Ed25519::drop_private(&mut imported).unwrap();
 +    assert_eq!(imported, [0; 32]);
 +}
++
++#[cfg(feature = "ed25519")]
++#[test]
++fn ed25519_nonempty_rfc8032_signing_and_driver_failure() {
++    use wasefire_board_api::crypto::ed25519::Api;
++    let _test = TEST.lock().unwrap();
++    let seed = hex::<32>("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
++    let expected = hex::<64>("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00");
++    let (mut r, mut s) = ([0; 32], [0; 32]);
++    Ed25519::sign(&seed, &[0x72], &mut r, &mut s).unwrap();
++    assert_eq!(&r, &expected[.. 32]);
++    assert_eq!(&s, &expected[32 ..]);
++    ffi::INIT_ERROR.store(-147, Ordering::Relaxed);
++    let mut public = [0xa5; 32];
++    assert!(Ed25519::public(&seed, &mut public).is_err());
++    assert_eq!(public, [0xa5; 32]);
++    assert!(!BUSY.load(Ordering::Relaxed));
++    Ed25519::public(&seed, &mut public).unwrap();
++}
 diff --git a/crates/runner-nordic/src/board/crypto.rs b/crates/runner-nordic/src/board/crypto.rs
-index 01c1f2b2..62055dd6 100644
+index 01c1f2b2..7f733a3c 100644
 --- a/crates/runner-nordic/src/board/crypto.rs
 +++ b/crates/runner-nordic/src/board/crypto.rs
 @@ -17,9 +17,40 @@ use wasefire_board_api::crypto;
@@ -2210,13 +2272,13 @@ index 01c1f2b2..62055dd6 100644
 +))]
 +compile_error!("CC310 and software symmetric backends cannot be enabled together");
 +
-+#[cfg(all(feature = "oberon-ed25519", feature = "software-crypto-ed25519"))]
-+compile_error!("Oberon and software Ed25519 backends cannot be enabled together");
++#[cfg(all(feature = "hardware-crypto-ed25519", feature = "software-crypto-ed25519"))]
++compile_error!("CC310 and software Ed25519 backends cannot be enabled together");
 +
  pub enum Impl {}
  
  impl crypto::Api for Impl {
-+    #[cfg(feature = "oberon-ed25519")]
++    #[cfg(feature = "hardware-crypto-ed25519")]
 +    type Ed25519 = nrf_cc310::Ed25519;
 +    #[cfg(feature = "hardware-crypto-symmetric")]
 +    type HmacSha256 = nrf_cc310::HmacSha256;
@@ -2241,7 +2303,7 @@ index 01c1f2b2..62055dd6 100644
 +#[cfg(any(
 +    feature = "hardware-crypto-p256",
 +    feature = "hardware-crypto-symmetric",
-+    feature = "oberon-ed25519"
++    feature = "hardware-crypto-ed25519"
 +))]
 +#[unsafe(no_mangle)]
 +unsafe extern "C" fn psa_generate_random(output: *mut u8, size: usize) -> i32 {
@@ -3284,3 +3346,25 @@ index 00000000..f9b2b7b3
 +        ed25519_checks();
 +    }
 +}
+diff --git a/examples/rust/ed25519_test/src/lib.rs b/examples/rust/ed25519_test/src/lib.rs
+index e971f4c4..2bc55e91 100644
+--- a/examples/rust/ed25519_test/src/lib.rs
++++ b/examples/rust/ed25519_test/src/lib.rs
+@@ -53,10 +53,17 @@ fn test(vectors: &[Vector]) {
+         let mut a = [0; 32];
+         private.public().unwrap().export(&mut a).unwrap();
+         assert_eq!(&a, public);
++        let (mut signed_r, mut signed_s) = ([0; 32], [0; 32]);
++        private.sign(message, &mut signed_r, &mut signed_s).unwrap();
++        assert_eq!(&signed_r, &signature[.. 32]);
++        assert_eq!(&signed_s, &signature[32 ..]);
+         let public = Public::import(public).unwrap();
+         let r = signature[.. 32].try_into().unwrap();
+         let s = signature[32 ..].try_into().unwrap();
+         assert!(public.verify(message, r, s).unwrap());
++        signed_r[0] ^= 1;
++        assert!(!public.verify(message, &signed_r, &signed_s).unwrap());
++        assert!(!public.verify(b"tampered", r, s).unwrap());
+     }
+ }
+ 

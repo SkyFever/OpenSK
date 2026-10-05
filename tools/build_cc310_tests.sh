@@ -9,7 +9,7 @@ OUT="$PWD/build/hw-crypto"
 mkdir -p "$OUT"
 cd third_party/wasefire
 SOFTWARE="software-crypto-aes256-cbc,software-crypto-hmac-sha256,software-crypto-p256-ecdh,software-crypto-p256-ecdsa,software-crypto-ed25519"
-NORDIC="hardware-crypto-p256,hardware-crypto-symmetric,oberon-ed25519"
+NORDIC="hardware-crypto-p256,hardware-crypto-symmetric,hardware-crypto-ed25519"
 build_image() {
   local applet="$1" name="$2" runner_features="$3" applet_features="$4"
   cargo xtask --native applet rust "$applet" --features="$applet_features" --opt-level=z \
@@ -26,7 +26,7 @@ build_image() {
 # Ed25519 after adding mandatory software AES-256. Keep Ed25519 in its own
 # vector image; the shared benchmark covers P-256, CBC and SHA/HMAC.
 build_image crypto_compare software-crypto-compare "${SOFTWARE%,software-crypto-ed25519}" ""
-build_image crypto_compare nordic-crypto-compare "${NORDIC%,oberon-ed25519}" nordic
+build_image crypto_compare nordic-crypto-compare "${NORDIC%,hardware-crypto-ed25519}" nordic
 for APPLET in ecdsa_test ecdh_test cbc_test hash_test ed25519_test; do
   build_image "$APPLET" "nordic-$APPLET" "$NORDIC" ""
 done
