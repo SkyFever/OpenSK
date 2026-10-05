@@ -170,7 +170,9 @@ inputs as regression vectors:
 signature with an equivalent 64-byte prehash; 13 verifies the adjusted fixed
 signature with a 32-byte prehash; 14 repeats that check with a 64-byte prehash.
 The adjusted signature and both prehash encodings were checked independently
-with OpenSSL. ECC verifier failures also append white bursts for the raw PSA
+with OpenSSL. secp224k1 additionally checks its freshly generated key:
+17 signs, 18 verifies, 19 rejects a changed digest, and 20 checks ECDH against G.
+ECC verifier failures also append white bursts for the raw PSA
 status: 1 invalid signature, 2 invalid argument, 3 not supported, 4 hardware
 failure, 5 buffer too small, 6 corruption detected, 7 other error.
 For example, red 6 / blue 1 / green 2 means P-192 signing failed.
@@ -275,3 +277,21 @@ signatures, including the previously failing operation 13, Q=G and Q=-G.
 It then completed the first five ECC curves and reached secp224k1 fresh key
 generation (stage 6 / curve 6 / operation 6). The single-point path also
 passed secp224k1's generated signature with its 225-bit scalar order.
+
+
+The pinned cc3xx_generate_key exports ceil(field_bits/8) bytes even when the
+curve order has more bits. For secp224k1 this exports only 28 bytes from a
+225-bit scalar and reports length 28, causing the adapter to reject it.
+This curve now generates 29-byte candidates from the existing CC310
+TRNG-seeded CTR-DRBG, masks the seven unused high bits, and rejects zero or
+values >=n. It preserves the full 225-bit range without modulo bias.
+Other curves keep their existing Nordic key generation. The same Rust
+driver guard serializes all RNG and curve calls.
+
+After 128 rejected candidates, or an RNG/short-output failure, generation
+returns an entropy error and wipes the candidate. The native C regression
+checks zero/n/n+1/out-of-range rejection, the n-1 key with its significant
+225th bit intact, unused-bit masking, invalid lengths, RNG failures, bounded
+retries and the unchanged ordinary keygen path. The diagnostic checks a new
+secp224k1 key through public derivation, signing, verification, tampered
+digest rejection and ECDH. Hardware execution of this keygen fix is pending.

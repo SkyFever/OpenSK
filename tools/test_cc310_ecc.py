@@ -18,6 +18,7 @@ HARNESS = r"""
 #include <psa/crypto.h>
 #include <cc3xx_psa_key_generation.h>
 #include <cc3xx_psa_asymmetric_signature.h>
+#include <nrf_cc3xx_platform_ctr_drbg.h>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
@@ -30,6 +31,52 @@ static const int nids[8] = {
 static int export_status, verify_status;
 static int short_export, bad_export;
 static unsigned export_calls, verify_calls;
+static uint8_t random_draws[5][29];
+static unsigned random_calls, generate_calls;
+static int init_status, random_status, short_random, zero_random, generate_status, short_key;
+int opensk_cc310_ecc_generate(uint32_t curve, uint8_t *output, size_t size);
+
+int nrf_cc3xx_platform_ctr_drbg_init(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context,
+    const uint8_t *personalization, size_t size)
+{
+    assert(context && !context->is_initialized);
+    assert(size == strlen("OpenSK nRF52840 CC310"));
+    assert(memcmp(personalization, "OpenSK nRF52840 CC310", size) == 0);
+    if (!init_status) context->is_initialized = 1;
+    return init_status;
+}
+int nrf_cc3xx_platform_ctr_drbg_free(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context)
+{
+    memset(context, 0, sizeof(*context));
+    return 0;
+}
+int nrf_cc3xx_platform_ctr_drbg_get(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context,
+    uint8_t *output, size_t size, size_t *written)
+{
+    assert(context && context->is_initialized && size == 29);
+    *written = short_random ? size - 1 : size;
+    if (zero_random) memset(output, 0, *written);
+    else {
+        assert(random_calls < 5);
+        memcpy(output, random_draws[random_calls], *written);
+    }
+    random_calls++;
+    return random_status;
+}
+psa_status_t cc3xx_generate_key(const psa_key_attributes_t *attr,
+    uint8_t *output, size_t size, size_t *written)
+{
+    assert(psa_get_key_bits(attr) == 192 && size == 24);
+    generate_calls++;
+    if (generate_status) return generate_status;
+    memset(output, 0x42, size);
+    *written = size - (short_key ? 1 : 0);
+    return PSA_SUCCESS;
+}
+
 int opensk_cc310_ecc_verify(uint32_t curve, const uint8_t *key, size_t key_size,
     const uint8_t *hash, size_t hash_size, const uint8_t *sig, size_t sig_size);
 int opensk_cc310_verify(const uint8_t key[64], const uint8_t digest[32], const uint8_t sig[64]);
@@ -117,8 +164,60 @@ static void add_one(uint8_t *value, size_t size)
     while (size && ++value[--size] == 0) {}
 }
 
+static void test_k224_generation(void)
+{
+    EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_secp224k1);
+    BIGNUM *order = BN_new();
+    uint8_t expected[29], buffer[31];
+    assert(EC_GROUP_get_order(group, order, NULL) == 1);
+    assert(BN_bn2binpad(order, random_draws[1], 29) == 29);
+    memcpy(random_draws[2], random_draws[1], 29);
+    add_one(random_draws[2], 29);
+    memset(random_draws[3], 0xff, 29);
+    assert(BN_sub_word(order, 1) == 1);
+    assert(BN_bn2binpad(order, expected, 29) == 29);
+    memcpy(random_draws[4], expected, 29);
+    random_draws[4][0] = 0xff; // Masking must preserve the significant 225th bit.
+    memset(buffer, 0xa5, sizeof(buffer));
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 28) == PSA_ERROR_INVALID_ARGUMENT);
+    assert(opensk_cc310_ecc_generate(8, buffer + 1, 29) == PSA_ERROR_INVALID_ARGUMENT);
+    for (size_t i = 0; i < sizeof(buffer); i++) assert(buffer[i] == 0xa5);
+    init_status = -1;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    assert(random_calls == 0);
+    for (size_t i = 1; i < 30; i++) assert(buffer[i] == 0);
+    init_status = 0;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_SUCCESS);
+    assert(random_calls == 5 && memcmp(buffer + 1, expected, 29) == 0);
+    // Zero, n, n+1 and a masked 225-bit value above n were all rejected.
+    memset(random_draws, 0, sizeof(random_draws));
+    random_draws[0][0] = 0x80;
+    random_draws[0][28] = 1;
+    random_calls = 0;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_SUCCESS);
+    for (size_t i = 1; i < 29; i++) assert(buffer[i] == 0);
+    assert(buffer[29] == 1 && random_calls == 1);
+    random_calls = 0; random_status = -1;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    random_status = 0; random_calls = 0; short_random = 1;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    short_random = 0; random_calls = 0; zero_random = 1;
+    assert(opensk_cc310_ecc_generate(5, buffer + 1, 29) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    assert(random_calls == 128);
+    for (size_t i = 1; i < 30; i++) assert(buffer[i] == 0);
+    assert(buffer[0] == 0xa5 && buffer[30] == 0xa5 && generate_calls == 0);
+    assert(opensk_cc310_ecc_generate(0, buffer + 1, 24) == PSA_SUCCESS);
+    assert(generate_calls == 1);
+    short_key = 1;
+    assert(opensk_cc310_ecc_generate(0, buffer + 1, 24) == PSA_ERROR_CORRUPTION_DETECTED);
+    short_key = 0; generate_status = PSA_ERROR_HARDWARE_FAILURE;
+    assert(opensk_cc310_ecc_generate(0, buffer + 1, 24) == generate_status);
+    BN_free(order); EC_GROUP_free(group);
+    puts("Actual C secp224k1 keygen: full 225-bit range, rejection sampling and RNG failures passed.");
+}
 int main(void)
 {
+    test_k224_generation();
     unsigned cases = 0, fixed_cases = 0;
     const size_t hashes[] = {20, 28, 32, 48, 64};
     for (uint32_t curve = 0; curve < 8; curve++) {

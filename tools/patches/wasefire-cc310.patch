@@ -1633,10 +1633,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..7213b0a5
+index 00000000..a3fabe68
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,1205 @@
+@@ -0,0 +1,1225 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -2177,9 +2177,11 @@ index 00000000..7213b0a5
 +    default: return 0;
 +    }
 +}
++static int opensk_ecc_generate_k224(uint8_t *output, size_t size);
 +int opensk_cc310_ecc_generate(uint32_t curve, uint8_t *output, size_t size)
 +{
 +    if (curve >= 8) return PSA_ERROR_INVALID_ARGUMENT;
++    if (curve == 5) return opensk_ecc_generate_k224(output, size);
 +    psa_key_attributes_t attr = opensk_ecc_attributes(curve, false);
 +    size_t written = 0;
 +    int result = cc3xx_generate_key(&attr, output, size, &written);
@@ -2493,6 +2495,24 @@ index 00000000..7213b0a5
 +    uint8_t bits = 0;
 +    for (size_t i = 0; i < size; i++) bits |= value[i];
 +    return bits != 0;
++}
++static int opensk_ecc_generate_k224(uint8_t *output, size_t size)
++{
++    if (size != 29) return PSA_ERROR_INVALID_ARGUMENT;
++    /* The pinned PSA keygen exports ceil(field_bits/8)=28 bytes, truncating
++     * this curve's 225-bit scalar. Draw the complete scalar from the same
++     * CC310 CTR-DRBG, mask unused bits, and reject outside 1..n-1. */
++    for (unsigned attempt = 0; attempt < 128; attempt++) {
++        int result = opensk_cc310_random(output, size);
++        if (result) break;
++        output[0] &= 1;
++        if (opensk_be_nonzero(output, size)
++            && opensk_be_compare(output, opensk_ecc_parameters[5].order, size) < 0) return 0;
++    }
++    /* A failed/broken source cannot leave a rejected private candidate. */
++    volatile uint8_t *secret = output;
++    for (size_t i = 0; i < size; i++) secret[i] = 0;
++    return PSA_ERROR_INSUFFICIENT_ENTROPY;
 +}
 +static void opensk_be_subtract(uint8_t *value, const uint8_t *other, size_t size)
 +{
@@ -4625,10 +4645,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..b396e2fa
+index 00000000..ca0527d2
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,317 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4859,10 +4879,22 @@ index 00000000..b396e2fa
 +        progress(6, curve_step | 5);
 +        ecc::shared(curve, &key, &pubkey, &mut secret)?;
 +        check(secret.as_slice() == &pubkey[1 .. 1 + coordinate])?;
++        let known_public = if index == 5 { Some(pubkey.clone()) } else { None };
 +        progress(6, curve_step | 6);
 +        ecc::generate(curve, &mut key)?;
 +        progress(6, curve_step | 7);
 +        ecc::public(curve, &key, &mut pubkey)?;
++        if let Some(known_public) = known_public {
++            progress(6, curve_step | 17);
++            ecc::sign(curve, &key, &[0x42; 32], &mut sig)?;
++            progress(6, curve_step | 18);
++            check(ecc::verify(curve, &pubkey, &[0x42; 32], &sig)?)?;
++            progress(6, curve_step | 19);
++            check(!ecc::verify(curve, &pubkey, &[0x43; 32], &sig)?)?;
++            progress(6, curve_step | 20);
++            ecc::shared(curve, &key, &known_public, &mut secret)?;
++            check(secret.as_slice() == &pubkey[1 .. 1 + coordinate])?;
++        }
 +    }
 +    progress(7, 0);
 +    let bits = rsa::Bits::B2048;
@@ -6216,7 +6248,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..4c0070b6 100644
+index 891500fd..b0a71910 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -6337,7 +6369,7 @@ index 891500fd..4c0070b6 100644
 +                }
 +            }
 +        }
-+        if result.is_err() && stage == 6 && matches!(step & 0xff, 3 | 4 | 8 | 9 | 10 | 12 | 13 | 14) {
++        if result.is_err() && stage == 6 && matches!(step & 0xff, 3 | 4 | 8 | 9 | 10 | 12 | 13 | 14 | 18 | 19) {
 +            let count = match verify_status {
 +                0 => 0,
 +                -149 => 1, // Invalid signature.
