@@ -91,8 +91,9 @@ ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
 user's board. Ed25519 public/signature vectors, valid-signature verification,
 changed-message rejection, fresh key generation/signing/verification and
 private-key wiping also passed on hardware. All eight additional ECC curves
-and RSA-2048 have now passed the hardware diagnostic; SRP and
-ChaCha20-Poly1305 are still being verified.
+and RSA-2048 have passed the hardware diagnostic. SRP-3072 and
+ChaCha20-Poly1305 also passed after correcting the legacy SRP comparison ABI;
+the complete nine-stage diagnostic now repeats green on the physical board.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -110,7 +111,8 @@ handling pass in the host model and hardware diagnostic stage 3.
 The `chacha20poly1305` adapter feature provides the IETF AEAD format
 (256-bit key, 12-byte nonce, 16-byte tag). It preserves caller output on
 failed authentication. RFC8439 and tampered-tag checks pass in the host model;
-hardware execution is pending. The pinned PSA interface does not expose
+the RFC8439 tag/plaintext vector and tampered-tag rejection also passed on
+the physical board. The pinned PSA interface does not expose
 the legacy 128-bit ChaCha key format.
 
 The `x25519` adapter feature exposes key generation, public derivation and
@@ -145,7 +147,7 @@ contexts for trusted 1024/1536/2048/3072-bit groups, random salt/verifiers,
 ephemeral public keys, session keys and mutual proofs. It uses the same
 v0.9.19 legacy/core libraries and CC310 SHA-256 hooks; secret contexts are wiped.
 ABI assertions match the pinned 1020-byte SRP context. SRP has passed ARM
-compilation and full linking. The first SRP-3072 hardware round trip failed;
+compilation and full linking. The original SRP-3072 hardware round trip failed;
 operation and raw-status diagnostics identified user initialization, with
 CC_SRP_INTERNAL_PKI_ERROR. Disassembly showed that SRP's three zero-digest
 guards use memcmp semantics, while the linked CC_PalSecMemCmp returns 1
@@ -153,8 +155,9 @@ for equal buffers. Builds now copy the pinned legacy archive and rebind only
 srp_driver.c.obj to its existing SRP_SecureMemCmp (0 for equal buffers).
 The cached dependency and other archive members are unchanged. The hardware
 diagnostic checks both initialized multipliers against the independently
-computed SHA256(N || PAD(g)) vector before the round trip. Device revalidation
-of this correction is pending.
+computed SHA256(N || PAD(g)) vector before the round trip. Both multiplier
+vectors, matching session keys, mutual proof verification, tampered user-proof
+rejection and invalidated-context rejection passed on the physical board.
 
 Build the single hardware diagnostic image with
 `./tools/build_cc310_tests.sh --self-test-only`. It writes
