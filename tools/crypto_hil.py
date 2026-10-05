@@ -73,6 +73,12 @@ def verify_assertion(state, response, client_hash, use_pin):
     CoseKey.parse(state["public_key"]).verify(bytes(auth) + client_hash, response.signature)
 
 
+def signature_label(state):
+    return {-7: "ES256", -8: "Ed25519"}.get(
+        state["public_key"][3], f"COSE {state['public_key'][3]}"
+    )
+
+
 def assert_credential(ctap, state, use_pin, discover=False):
     client_hash = secrets.token_bytes(32)
     allow_list = None if discover else [{"type": "public-key", "id": state["credential_id"]}]
@@ -91,7 +97,7 @@ def assert_credential(ctap, state, use_pin, discover=False):
     if len(matches) != 1:
         raise ValueError("Saved credential not returned exactly once")
     verify_assertion(state, matches[0], client_hash, use_pin)
-    print("getAssertion / ES256 signature / RP / presence: PASS")
+    print(f"getAssertion / {signature_label(state)} signature / RP / presence: PASS")
     if discover:
         print("Resident discovery: PASS")
 
@@ -126,6 +132,8 @@ def main():
     parser.add_argument("--pid", type=lambda x: int(x, 0))
     parser.add_argument("--serial")
     parser.add_argument("--state", type=Path)
+    parser.add_argument("--algorithm", choices=["es256", "ed25519"],
+                        help="Credential algorithm for create (default: es256)")
     parser.add_argument("--pin", action="store_true", help="Use an already configured PIN")
     parser.add_argument("--resident", action="store_true", help="Create one resident test credential")
     parser.add_argument("--discover", action="store_true", help="Assert saved resident credential without allowList")
@@ -135,6 +143,8 @@ def main():
         parser.error("--vid and --pid are required to select the device")
     if args.operation in ("create", "assert") and args.state is None:
         parser.error("--state is required")
+    if args.algorithm is not None and args.operation != "create":
+        parser.error("--algorithm applies only to create")
     if args.resident and args.operation != "create":
         parser.error("--resident applies only to create")
     if args.discover and args.operation != "assert":
@@ -167,6 +177,7 @@ def main():
         if args.operation == "info":
             return
         if args.operation == "create":
+            algorithm = {"es256": -7, "ed25519": -8}[args.algorithm or "es256"]
             rp_id = "crypto-hil-" + secrets.token_hex(8) + ".local"
             client_hash = secrets.token_bytes(32)
             auth = authorization(ctap, client_hash, rp_id, args.pin, make=True)
@@ -175,19 +186,19 @@ def main():
                 att = ctap.make_credential(
                     client_hash, {"id": rp_id, "name": "OpenSK crypto HIL"},
                     {"id": secrets.token_bytes(16), "name": "crypto-hil"},
-                    [{"type": "public-key", "alg": -7}],
+                    [{"type": "public-key", "alg": algorithm}],
                     options={"rk": args.resident}, event=event, on_keepalive=keepalive, **auth,
                 )
             credential = att.auth_data.credential_data
-            if credential is None or credential.public_key[3] != -7:
-                raise ValueError("Expected ES256 credential")
+            if credential is None or credential.public_key[3] != algorithm:
+                raise ValueError("Credential algorithm does not match the request")
             state = {
                 "rp_id": rp_id, "credential_id": credential.credential_id,
                 "public_key": dict(credential.public_key), "resident": args.resident,
             }
             with args.state.open("xb") as output:
                 output.write(cbor.encode(state))
-            print(f"makeCredential ES256: PASS; public credential record saved to {args.state}")
+            print(f"makeCredential {signature_label(state)}: PASS; public credential record saved to {args.state}")
         assert_credential(ctap, state, args.pin, args.discover)
         if args.negative:
             negatives(ctap, state, args.pin)

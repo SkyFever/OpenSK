@@ -3,11 +3,11 @@ import hashlib
 from types import SimpleNamespace
 import unittest
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.hazmat.primitives.hashes import SHA256
 from fido2 import cose
 from fido2.webauthn import AuthenticatorData
-from crypto_hil import choose, verify_assertion
+from crypto_hil import choose, signature_label, verify_assertion
 
 
 class HostContractTests(unittest.TestCase):
@@ -37,6 +37,20 @@ class HostContractTests(unittest.TestCase):
         with self.assertRaises(InvalidSignature):
             verify_assertion(state, response(), b"x" * 32, True)
 
+    def test_ed25519_assertion_and_tampered_signature(self):
+        key = ed25519.Ed25519PrivateKey.generate()
+        state = {"rp_id": "ed25519.local", "credential_id": b"ed-id",
+                 "public_key": dict(cose.EdDSA.from_cryptography_key(key.public_key()))}
+        digest = hashlib.sha256(b"client").digest()
+        auth = AuthenticatorData.create(hashlib.sha256(b"ed25519.local").digest(), 1, 1)
+        signature = key.sign(bytes(auth) + digest)
+        response = SimpleNamespace(auth_data=auth, signature=signature,
+                                   credential={"id": b"ed-id"})
+        self.assertEqual(signature_label(state), "Ed25519")
+        verify_assertion(state, response, digest, False)
+        response.signature = signature[:-1] + bytes([signature[-1] ^ 1])
+        with self.assertRaises(InvalidSignature):
+            verify_assertion(state, response, digest, False)
 
 
 if __name__ == "__main__":

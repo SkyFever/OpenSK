@@ -1,13 +1,14 @@
 # Makerdiary CC310 backend
 
 The `--crypto=cc310` build uses Nordic CC310 for P-256, SHA-256 and
-HMAC-SHA256. AES-256-CBC keeps the existing software backend because CC310
-supports only 128-bit AES keys. Optional Ed25519 uses the CC310 driver.
+HMAC-SHA256, general RNG and the AES-128-CCM board API. AES-256-CBC keeps
+the existing software backend because CC310 supports only 128-bit AES keys. Optional Ed25519 uses the CC310 driver.
 
 | Operation | `software` | `cc310` |
 | --- | --- | --- |
 | P-256 keygen, public key, ECDSA, ECDH | RustCrypto | CC310 |
 | SHA-256, HMAC-SHA256 | RustCrypto | CC310 |
+| AES-128-CCM board API | nRF CCM peripheral or RustCrypto | CC310 |
 | AES-256-CBC | RustCrypto | RustCrypto |
 | Optional Ed25519 | RustCrypto | CC310 |
 | General RNG | nRF RNG peripheral | CC310 TRNG-seeded AES CTR-DRBG |
@@ -24,8 +25,9 @@ requires `clang-18`, `llvm-ar` and Python. Builds use the pinned Rust toolchain.
 ```sh
 ./flash_uf2.sh --crypto=software nrf52840_mdk
 ./flash_uf2.sh --crypto=cc310 --output=build/hw-crypto/opensk-nordic.uf2 nrf52840_mdk
-# Optional Ed25519:
-./flash_uf2.sh --crypto=cc310 --features=ctap1,config-command,ed25519 nrf52840_mdk
+# Enable Ed25519 credentials as well:
+./flash_uf2.sh --crypto=cc310 --features=ctap1,config-command,ed25519 \
+  --output=build/hw-crypto/opensk-nordic.uf2 nrf52840_mdk
 ```
 
 These commands generate HEX/UF2 files without accessing a device. Flash the
@@ -70,8 +72,10 @@ Normal user-presence blinking remains separate.
 
 `tools/crypto_hil.py` supports explicitly selected device info, credential
 creation/assertion and negative checks. It prints keepalive transitions and
-never resets the device or changes its PIN. Its cancellation timer is
-best-effort; a stalled blocking HID read may require Ctrl+C.
+never resets the device or changes its PIN. Select `--algorithm ed25519`
+when creating a test credential to exercise CC310 Ed25519; later assertions
+use the algorithm in the saved record. The default creation algorithm is ES256.
+Its cancellation timer is best-effort; a stalled blocking HID read may require Ctrl+C.
 
 `tools/build_cc310_tests.sh` optionally builds comparison/benchmark and vector
 images. The common images omit Ed25519 to fit the existing dual-slot layout;
@@ -81,7 +85,10 @@ Registration, assertion, ES256 verification, wrong-RP/tampered-ID rejection and
 Token2 registration/login passed with the corrected firmware on the user's
 board. Valid attestation still requires separately provisioned AAGUID/certificate
 material; enabling batch attestation alone does not provision it.
-\nNew CC310 Ed25519 and general RNG paths have passed host adapter tests and\nARM builds. Their physical-device execution remains to be verified.\n
+
+New CC310 Ed25519 and general RNG paths have passed host adapter tests and
+ARM builds. Their physical-device execution remains to be verified.
+
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
 SHA-1/SHA-224 and HMAC vectors pass in the host driver model; hardware execution
@@ -140,4 +147,11 @@ No hardware execution is implied by successfully building this image.
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
 using the CC310 AES-CTR payload stream. Its ciphertext matches authenticated
 CCM for the same key/nonce. It is included in hardware self-test stage 3.
-\nSRP contexts become unusable and are wiped after a driver failure. This prevents\nsubsequent calls from dereferencing callback pointers cleared by Nordic.\n
+
+SRP contexts become unusable and are wiped after a driver failure. This prevents
+subsequent calls from dereferencing callback pointers cleared by Nordic.
+
+Direct entropy uses Nordic's platform wrapper, including its RNG mutex and
+CC310 power handling. Calling the PSA entropy function directly left the
+hardware diagnostic at a static red stage 1; revalidation of the correction
+is pending.

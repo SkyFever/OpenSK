@@ -169,7 +169,11 @@ echo "Building target: nrf52840_mdk (Makerdiary)"
 echo "OpenSK features: $MDK_FEATURES"
 echo "Crypto backend: $CRYPTO"
 if [[ "$CRYPTO" == cc310 ]]; then
-  echo "CC310: P-256 / SHA-256 / HMAC-SHA256; AES-256-CBC: software"
+  echo "CC310: P-256 / SHA-256 / HMAC-SHA256 / RNG / AES-128-CCM"
+  if [[ ",$MDK_FEATURES," == *,ed25519,* ]]; then
+    echo "CC310: Ed25519"
+  fi
+  echo "AES-256-CBC: software"
 fi
 echo "CC310 LED diagnostics: $CRYPTO_TRACE"
 echo "Mode: canonical flash artifact only; NO device access / NO flash"
