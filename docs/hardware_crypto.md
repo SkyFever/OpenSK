@@ -100,3 +100,8 @@ The `chacha20poly1305` adapter feature provides the IETF AEAD format
 failed authentication. RFC8439 and tampered-tag checks pass in the host model;
 hardware execution is pending. The pinned PSA interface does not expose
 the legacy 128-bit ChaCha key format.
+
+The `x25519` adapter feature exposes key generation, public derivation and
+ECDH in RFC7748 little-endian form. All-zero shared secrets are rejected.
+RFC7748 cross-party and low-order checks pass in the host model; hardware
+execution is pending. OpenSK credential algorithms are unchanged.
