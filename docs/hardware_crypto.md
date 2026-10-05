@@ -82,3 +82,7 @@ Token2 registration/login passed with the corrected firmware on the user's
 board. Valid attestation still requires separately provisioned AAGUID/certificate
 material; enabling batch attestation alone does not provision it.
 \nNew CC310 Ed25519 and general RNG paths have passed host adapter tests and\nARM builds. Their physical-device execution remains to be verified.\n
+The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
+and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
+SHA-1/SHA-224 and HMAC vectors pass in the host driver model; hardware execution
+of these additional primitives is pending.
