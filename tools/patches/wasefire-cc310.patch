@@ -8,7 +8,7 @@ index 7a75f793..6b8132ae 100644
 -/target/
 +target/
 diff --git a/crates/runner-nordic/Cargo.lock b/crates/runner-nordic/Cargo.lock
-index 274b9dda..070c6116 100644
+index 274b9dda..03b608fc 100644
 --- a/crates/runner-nordic/Cargo.lock
 +++ b/crates/runner-nordic/Cargo.lock
 @@ -355,6 +355,32 @@ dependencies = [
@@ -110,7 +110,7 @@ index 274b9dda..070c6116 100644
  ]
  
  [[package]]
-@@ -1683,6 +1740,17 @@ dependencies = [
+@@ -1683,6 +1740,18 @@ dependencies = [
   "defmt 1.1.0",
  ]
  
@@ -119,6 +119,7 @@ index 274b9dda..070c6116 100644
 +version = "0.1.0"
 +dependencies = [
 + "digest",
++ "sha2",
 + "typenum",
 + "wasefire-board-api",
 + "wasefire-error",
@@ -1047,10 +1048,10 @@ index 00000000..2fbf75db
 +checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 diff --git a/crates/runner-nordic/crates/cc310/Cargo.toml b/crates/runner-nordic/crates/cc310/Cargo.toml
 new file mode 100644
-index 00000000..7563e5d2
+index 00000000..a1971e01
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/Cargo.toml
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,51 @@
 +[package]
 +name = "wasefire-nrf-cc310"
 +version = "0.1.0"
@@ -1071,7 +1072,7 @@ index 00000000..7563e5d2
 +  "chacha20poly1305", "x25519", "ecc", "rsa", "srp"]
 +chacha20poly1305 = []
 +aes128 = ["dep:typenum", "wasefire-board-api/api-crypto-aes128-ccm"]
-+ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
++ed25519 = ["dep:sha2", "wasefire-board-api/api-crypto-ed25519"]
 +symmetric = [
 +  "dep:digest", "dep:typenum",
 +  "wasefire-board-api/api-crypto-hmac-sha256",
@@ -1079,6 +1080,7 @@ index 00000000..7563e5d2
 +]
 +
 +[dependencies]
++sha2 = { version = "0.10.9", default-features = false, optional = true }
 +digest = { version = "0.10.7", default-features = false, optional = true, features = ["mac"] }
 +typenum = { version = "1.20.1", default-features = false, optional = true }
 +wasefire-error = { path = "../../../error" }
@@ -1103,10 +1105,10 @@ index 00000000..7563e5d2
 +rust.unsafe_op_in_unsafe_fn = "deny"
 diff --git a/crates/runner-nordic/crates/cc310/build.rs b/crates/runner-nordic/crates/cc310/build.rs
 new file mode 100644
-index 00000000..30c8e4b2
+index 00000000..42fe4951
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/build.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,94 @@
 +// SPDX-License-Identifier: Apache-2.0
 +use std::path::PathBuf;
 +use std::process::Command;
@@ -1140,6 +1142,9 @@ index 00000000..30c8e4b2
 +    let mut compiler = Command::new(cc);
 +    if srp {
 +        compiler.arg("-DOPENSK_CC310_SRP");
++    }
++    if std::env::var_os("CARGO_FEATURE_ED25519").is_some() {
++        compiler.arg("-DOPENSK_CC310_ED25519");
 +    }
 +    run(compiler
 +        .args([
@@ -1628,10 +1633,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..4800d4e0
+index 00000000..fb0510d9
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,697 @@
+@@ -0,0 +1,736 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -1750,9 +1755,24 @@ index 00000000..4800d4e0
 +}
 +
 +/* The Nordic archive calls these PSA wrapper hooks from its internal hash
-+ * paths. Use the pinned PSA operation layout and its CC3XX context directly. */
++ * paths. Ed25519 requires SHA-512, which CC310 cannot compute. Use explicit
++ * software SHA-512 inside the unchanged 240-byte context; PKA remains CC310.
++ * IDs distinguish the selected implementation without a runtime fallback. */
++#ifdef OPENSK_CC310_ED25519
++int opensk_cc310_sha512_setup(void *context);
++int opensk_cc310_sha512_update(void *context, const uint8_t *input, size_t size);
++int opensk_cc310_sha512_finish(void *context, uint8_t hash[64]);
++int opensk_cc310_sha512_compute(const uint8_t *input, size_t size, uint8_t hash[64]);
++#endif
 +int psa_driver_wrapper_hash_setup(psa_hash_operation_t *operation, psa_algorithm_t alg)
 +{
++#ifdef OPENSK_CC310_ED25519
++    if (alg == PSA_ALG_SHA_512) {
++        int status = opensk_cc310_sha512_setup(&operation->MBEDTLS_PRIVATE(ctx));
++        operation->MBEDTLS_PRIVATE(id) = status ? 0 : 2;
++        return status;
++    }
++#endif
 +    int status = cc3xx_hash_setup(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, alg);
 +    operation->MBEDTLS_PRIVATE(id) = status ? 0 : 1;
 +    return status;
@@ -1760,11 +1780,26 @@ index 00000000..4800d4e0
 +
 +int psa_driver_wrapper_hash_update(psa_hash_operation_t *operation, const uint8_t *input, size_t size)
 +{
++#ifdef OPENSK_CC310_ED25519
++    if (operation->MBEDTLS_PRIVATE(id) == 2) {
++        return opensk_cc310_sha512_update(&operation->MBEDTLS_PRIVATE(ctx), input, size);
++    }
++#endif
 +    return cc3xx_hash_update(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, input, size);
 +}
 +
 +int psa_driver_wrapper_hash_finish(psa_hash_operation_t *operation, uint8_t *hash, size_t size, size_t *length)
 +{
++#ifdef OPENSK_CC310_ED25519
++    if (operation->MBEDTLS_PRIVATE(id) == 2) {
++        *length = 0;
++        if (size < 64) return PSA_ERROR_BUFFER_TOO_SMALL;
++        int status = opensk_cc310_sha512_finish(&operation->MBEDTLS_PRIVATE(ctx), hash);
++        operation->MBEDTLS_PRIVATE(id) = 0;
++        if (!status) *length = 64;
++        return status;
++    }
++#endif
 +    int status = cc3xx_hash_finish(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, hash, size, length);
 +    operation->MBEDTLS_PRIVATE(id) = 0;
 +    return status;
@@ -1773,6 +1808,15 @@ index 00000000..4800d4e0
 +int psa_driver_wrapper_hash_compute(psa_algorithm_t alg, const uint8_t *input, size_t input_length,
 +                                    uint8_t *hash, size_t hash_size, size_t *hash_length)
 +{
++#ifdef OPENSK_CC310_ED25519
++    if (alg == PSA_ALG_SHA_512) {
++        *hash_length = 0;
++        if (hash_size < 64) return PSA_ERROR_BUFFER_TOO_SMALL;
++        int status = opensk_cc310_sha512_compute(input, input_length, hash);
++        if (!status) *hash_length = 64;
++        return status;
++    }
++#endif
 +    return cc3xx_hash_compute(alg, input, input_length, hash, hash_size, hash_length);
 +}
 +
@@ -2771,10 +2815,10 @@ index 00000000..b0a8cda2
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/ed25519.rs b/crates/runner-nordic/crates/cc310/src/ed25519.rs
 new file mode 100644
-index 00000000..3c4caa98
+index 00000000..ba73dfa1
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/ed25519.rs
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,294 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! CC310 Ed25519 adapter. Private keys retain their existing 32-byte seed encoding.
 +use core::alloc::Layout;
@@ -2927,6 +2971,145 @@ index 00000000..3c4caa98
 +            0
 +        } else {
 +            -149
++        }
++    }
++}
++
++// SHA-512 is deliberately software: CC310 only hashes up to SHA-256.
++// Nordic's Ed25519 core supplies a 240-byte, u32-aligned PSA context. Move
++// Sha512 through unaligned copies so its u64 state never requires aligned
++// references to that storage. The context owns no allocation.
++mod sha512 {
++    use core::mem::{ManuallyDrop, needs_drop, size_of};
++    use core::ptr;
++
++    use sha2::{Digest, Sha512};
++    use zeroize::Zeroize;
++
++    const CONTEXT_SIZE: usize = 240;
++    const _: () = assert!(size_of::<Sha512>() <= CONTEXT_SIZE);
++    const _: () = assert!(!needs_drop::<Sha512>());
++
++    unsafe fn wipe_local(value: &mut ManuallyDrop<Sha512>) {
++        // SAFETY: Sha512 has no destructor. These bytes are never read again.
++        unsafe {
++            core::slice::from_raw_parts_mut(ptr::from_mut(value).cast::<u8>(), size_of::<Sha512>())
++                .zeroize();
++        }
++    }
++
++    unsafe fn store(context: *mut u8, value: &Sha512) {
++        // SAFETY: The caller supplies CONTEXT_SIZE writable bytes. Copying
++        // through bytes preserves the state without forming an aligned reference.
++        unsafe {
++            ptr::copy_nonoverlapping(
++                ptr::from_ref(value).cast::<u8>(),
++                context,
++                size_of::<Sha512>(),
++            );
++        }
++    }
++
++    unsafe fn input<'a>(data: *const u8, size: usize) -> &'a [u8] {
++        if size == 0 {
++            &[]
++        } else {
++            // SAFETY: Nordic supplies a readable buffer for this synchronous call.
++            unsafe { core::slice::from_raw_parts(data, size) }
++        }
++    }
++
++    #[unsafe(no_mangle)]
++    unsafe extern "C" fn opensk_cc310_sha512_setup(context: *mut u8) -> i32 {
++        let mut value = ManuallyDrop::new(Sha512::new());
++        // SAFETY: C supplies a writable 240-byte PSA context.
++        unsafe {
++            ptr::write_bytes(context, 0, CONTEXT_SIZE);
++            store(context, &value);
++            wipe_local(&mut value);
++        }
++        0
++    }
++
++    #[unsafe(no_mangle)]
++    unsafe extern "C" fn opensk_cc310_sha512_update(
++        context: *mut u8, data: *const u8, size: usize,
++    ) -> i32 {
++        if data.is_null() && size != 0 {
++            return -135;
++        }
++        // SAFETY: The context was initialized by setup; no aligned access is required.
++        let mut value = ManuallyDrop::new(unsafe { ptr::read_unaligned(context.cast::<Sha512>()) });
++        // SAFETY: Input is readable, and the live context remains caller-owned.
++        unsafe {
++            value.update(input(data, size));
++            store(context, &value);
++            wipe_local(&mut value);
++        }
++        0
++    }
++
++    #[unsafe(no_mangle)]
++    unsafe extern "C" fn opensk_cc310_sha512_finish(context: *mut u8, output: *mut u8) -> i32 {
++        // SAFETY: C supplies an initialized context and a writable 64-byte output.
++        let mut value = ManuallyDrop::new(unsafe { ptr::read_unaligned(context.cast::<Sha512>()) });
++        let mut hash = value.finalize_reset();
++        unsafe {
++            ptr::copy_nonoverlapping(hash.as_ptr(), output, 64);
++            core::slice::from_raw_parts_mut(context, CONTEXT_SIZE).zeroize();
++            wipe_local(&mut value);
++        }
++        hash.zeroize();
++        0
++    }
++
++    #[unsafe(no_mangle)]
++    unsafe extern "C" fn opensk_cc310_sha512_compute(
++        data: *const u8, size: usize, output: *mut u8,
++    ) -> i32 {
++        if data.is_null() && size != 0 {
++            return -135;
++        }
++        let mut context = [0u8; CONTEXT_SIZE];
++        // SAFETY: The local context/output have the required sizes and valid input.
++        unsafe {
++            opensk_cc310_sha512_setup(context.as_mut_ptr());
++            opensk_cc310_sha512_update(context.as_mut_ptr(), data, size);
++            opensk_cc310_sha512_finish(context.as_mut_ptr(), output)
++        }
++    }
++
++    #[cfg(test)]
++    #[test]
++    fn nordic_sha512_hooks_match_openssl_with_unaligned_context() {
++        use openssl::sha::sha512;
++        for size in [0, 1, 32, 64, 111, 112, 127, 128, 129, 257, 1024] {
++            let data = alloc::vec![0x72; size];
++            let expected = sha512(&data);
++            let mut output = [0; 64];
++            #[repr(align(8))]
++            struct Storage([u8; CONTEXT_SIZE + 2]);
++            let mut storage = Storage([0xa5; CONTEXT_SIZE + 2]);
++            let storage = &mut storage.0;
++            let context = unsafe { storage.as_mut_ptr().add(1) };
++            assert_ne!(context as usize % 8, 0);
++            // SAFETY: Offset one deliberately tests unaligned storage. All
++            // buffers have the sizes required by the same hooks called by C.
++            unsafe {
++                assert_eq!(
++                    opensk_cc310_sha512_compute(data.as_ptr(), size, output.as_mut_ptr()),
++                    0
++                );
++                assert_eq!(output, expected);
++                assert_eq!(opensk_cc310_sha512_setup(context), 0);
++                for part in data.chunks(31) {
++                    assert_eq!(opensk_cc310_sha512_update(context, part.as_ptr(), part.len()), 0);
++                }
++                assert_eq!(opensk_cc310_sha512_finish(context, output.as_mut_ptr()), 0);
++            }
++            assert_eq!(output, expected);
++            assert!(storage[1 .. CONTEXT_SIZE + 1].iter().all(|&byte| byte == 0));
++            assert_eq!((storage[0], storage[CONTEXT_SIZE + 1]), (0xa5, 0xa5));
 +        }
 +    }
 +}
@@ -3962,10 +4145,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..22f37a87
+index 00000000..794fd875
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,234 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4071,12 +4254,17 @@ index 00000000..22f37a87
 +    let seed = hex::<32>("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
 +    let (mut r, mut s, mut public) = ([0; 32], [0; 32], [0; 32]);
 +    Ed25519::public(&seed, &mut public)?;
++    check(public == hex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"))?;
++    progress(4, 2);
 +    Ed25519::sign(&seed, &[0x72], &mut r, &mut s)?;
++    progress(4, 3);
 +    check(r == hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"))?;
 +    check(s == hex("085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"))?;
++    progress(4, 4);
 +    check(Ed25519::verify(&public, &[0x72], &r, &s)?)?;
++    progress(4, 5);
 +    check(!Ed25519::verify(&public, &[0x73], &r, &s)?)?;
-+    progress(4, 2);
++    progress(4, 6);
 +    let mut fresh = [0; 32];
 +    Ed25519::generate(&mut fresh)?;
 +    Ed25519::public(&fresh, &mut public)?;

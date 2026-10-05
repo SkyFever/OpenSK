@@ -2,7 +2,7 @@
 
 The `--crypto=cc310` build uses Nordic CC310 for P-256, SHA-256 and
 HMAC-SHA256, general RNG and the AES-128-CCM board API. AES-256-CBC keeps
-the existing software backend because CC310 supports only 128-bit AES keys. Optional Ed25519 uses the CC310 driver.
+the existing software backend because CC310 supports only 128-bit AES keys. Optional Ed25519 uses CC310 PKA with explicit software SHA-512.
 
 | Operation | `software` | `cc310` |
 | --- | --- | --- |
@@ -10,7 +10,7 @@ the existing software backend because CC310 supports only 128-bit AES keys. Opti
 | SHA-256, HMAC-SHA256 | RustCrypto | CC310 |
 | AES-128-CCM board API | nRF CCM peripheral or RustCrypto | CC310 |
 | AES-256-CBC | RustCrypto | RustCrypto |
-| Optional Ed25519 | RustCrypto | CC310 |
+| Optional Ed25519 | RustCrypto | CC310 PKA + RustCrypto SHA-512 |
 | General RNG | nRF RNG peripheral | CC310 TRNG-seeded AES CTR-DRBG |
 
 This integrates the operations used by OpenSK; it does not expose every
@@ -101,7 +101,7 @@ The runner feature `hardware-crypto-aes128-ccm` selects CC310 CCM for the
 existing board API; it is mutually exclusive with the BLE CCM peripheral.
 `cc310-primitives` enables the additional hash and AES APIs. It does not add
 WebAuthn algorithms. NIST AES/CMAC vectors, round trips and tampered-tag/error
-handling pass in the host model; physical-device execution is pending.
+handling pass in the host model and hardware diagnostic stage 3.
 
 The `chacha20poly1305` adapter feature provides the IETF AEAD format
 (256-bit key, 12-byte nonce, 16-byte tag). It preserves caller output on
@@ -148,7 +148,9 @@ has no FIDO event loop; restore the normal OpenSK UF2 after recording its result
 Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
 5 long-key HMAC-SHA224. AES substeps are 1 ECB, 2 CBC, 3 CTR, 4 CMAC,
 5 CBC-MAC, 6 CCM, 7 tagless CCM*, 8 tampered CCM tag. ECC substeps follow the
-eight-curve order listed above.
+eight-curve order listed above. Ed25519 substeps are 1 public derivation/vector,
+2 signing, 3 signature vector, 4 verification, 5 changed-message rejection,
+6 fresh key generation/signing/verification.
 No hardware execution is implied by successfully building this image.
 
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
@@ -170,3 +172,12 @@ the direct DMA path. This also handles fixed vectors and long HMAC keys.
 The pinned PSA MAC function exposes CMAC but rejects CBC-MAC. Raw CBC-MAC
 therefore uses CC310 CBC encryption with a zero IV and returns the final block,
 without switching to software crypto.
+
+Nordic Ed25519 requests SHA-512 through the PSA hash wrapper hooks. The CC310
+hash driver supports only SHA-1/SHA-224/SHA-256, so SHA-512 is selected explicitly
+as software while the curve operations retain CC310 PKA. The state fits the
+unchanged 240-byte driver context; unaligned copies preserve the Nordic ABI.
+Previously the wrapper rejected the SHA-512 request during stage 4, substep 1.
+The corrected hooks are cross-checked against host OpenSSL for one-shot and
+streaming inputs around SHA-512 block/padding boundaries; board execution of
+the corrected Ed25519 path is pending.
