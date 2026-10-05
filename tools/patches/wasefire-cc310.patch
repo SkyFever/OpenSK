@@ -4162,10 +4162,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..d3ca4617
+index 00000000..a59f7a14
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,275 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4326,9 +4326,37 @@ index 00000000..d3ca4617
 +        key[size - 1] = 1;
 +        let mut pubkey = vec![0; curve.public_size()];
 +        ecc::public(curve, &key, &mut pubkey)?;
++        if index == 0 {
++            check(pubkey.as_slice() == hex::<49>(
++                "04188da80eb03090f67cbf20eb43a18800f4ff0afd82ff10120\
++                 7192b95ffc8da78631011ed6b24cdd573f977a11e794811",
++            ))?;
++        }
 +        let mut sig = vec![0; 2 * size];
 +        progress(6, curve_step | 2);
 +        ecc::sign(curve, &key, &[0x42; 32], &mut sig)?;
++        if index == 0 {
++            // Independent ECDSA references: d=1 or 2, k=1, SHA-256 digest 0x42*32.
++            // Both signatures and changed-digest rejection were checked with OpenSSL.
++            // Test Q=2G before Q=G to distinguish the core's equal-point case
++            // from generated-signature and general verifier failures.
++            let public_two = hex::<49>(
++                "04dafebf5828783f2ad35534631588a3f629a70fb16982a888d\
++                 d6bda0d993da0fa46b27bbc141b868f59331afa5c7e93ab",
++            );
++            let signature_two = hex::<48>(
++                "188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012\
++                 735d925fa2a3642f3bc08418c98552442c40583d48406266",
++            );
++            progress(6, curve_step | 8);
++            check(ecc::verify(curve, &public_two, &[0x42; 32], &signature_two)?)?;
++            let signature_one = hex::<48>(
++                "188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012\
++                 5acfea50f272d338bf01632d85e3ca4337414d3fc5415254",
++            );
++            progress(6, curve_step | 9);
++            check(ecc::verify(curve, &pubkey, &[0x42; 32], &signature_one)?)?;
++        }
 +        progress(6, curve_step | 3);
 +        check(ecc::verify(curve, &pubkey, &[0x42; 32], &sig)?)?;
 +        progress(6, curve_step | 4);

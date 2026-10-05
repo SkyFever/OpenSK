@@ -156,8 +156,13 @@ Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
 the eight-curve order listed above; an additional green burst identifies the
 operation: 1 public derivation, 2 signing, 3 valid-signature verification,
 4 changed-digest rejection, 5 ECDH/value check, 6 fresh key generation,
-7 fresh public derivation. For example, red 6 / blue 1 / green 2 means P-192
-signing failed. Repeated green alone remains the all-stages-passed signal.
+7 fresh public derivation. P-192 additionally checks its d=1 public key
+against G at operation 1, then verifies independent fixed signatures before
+operation 3: 8 uses Q=2G, 9 uses Q=G. These signatures use d=2 or d=1, nonce
+k=1, and the SHA-256 prehash 0x42 repeated 32 times. Both references and
+changed-digest rejection were independently verified with host OpenSSL.
+For example, red 6 / blue 1 / green 2 means P-192 signing failed.
+Repeated green alone remains the all-stages-passed signal.
 RTT logs also identify the ECC curve and operation separately.
 Ed25519 substeps are 1 public derivation/vector,
 2 signing, 3 signature vector, 4 verification, 5 changed-message rejection,
@@ -213,3 +218,11 @@ directly under the Rust driver guard; public derivation and signatures still
 use CC310 PKA with explicit software SHA-512. The native C regression also
 checks exact seed length, DRBG initialization failure, generation failure
 and short output.
+
+The user's board completed P-192 public derivation and the signing call, but
+failed generated-signature verification (stage 6 / curve 1 / operation 3).
+The diagnostic scalar d=1 gives Q=G. The pinned core verifier precomputes
+G+Q through PkaAddAff; its instruction path has no equal-point branch.
+The independent Q=2G and Q=G signature checks distinguish this suspected
+special case from a general verifier or generated-signature problem.
+Their hardware results are pending; no P-192 verification fix is claimed.
