@@ -88,9 +88,9 @@ material; enabling batch attestation alone does not provision it.
 
 New CC310 Ed25519 and general RNG paths have passed host adapter tests and
 ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
-user's board. Ed25519 public/signature vectors and valid-signature verification
-also passed on hardware; changed-message rejection and the remaining stages
-are still being verified.
+user's board. Ed25519 public/signature vectors, valid-signature verification
+and changed-message rejection also passed on hardware. Fresh Ed25519 keys
+and the remaining stages are still being verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -152,7 +152,8 @@ Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
 5 CBC-MAC, 6 CCM, 7 tagless CCM*, 8 tampered CCM tag. ECC substeps follow the
 eight-curve order listed above. Ed25519 substeps are 1 public derivation/vector,
 2 signing, 3 signature vector, 4 verification, 5 changed-message rejection,
-6 fresh key generation/signing/verification.
+6 fresh seed generation, 7 fresh public derivation, 8 fresh signing,
+9 fresh verification, 10 private-key wiping.
 No hardware execution is implied by successfully building this image.
 
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
@@ -181,8 +182,8 @@ as software while the curve operations retain CC310 PKA. The state fits the
 unchanged 240-byte driver context; unaligned copies preserve the Nordic ABI.
 Previously the wrapper rejected the SHA-512 request during stage 4, substep 1.
 The corrected hooks are cross-checked against host OpenSSL for one-shot and
-streaming inputs around SHA-512 block/padding boundaries; board execution of
-the corrected Ed25519 path is pending.
+streaming inputs around SHA-512 block/padding boundaries. The user's board
+passed the corrected public/signature vectors and verification checks.
 
 
 The pinned Nordic Ed25519 PSA verifier maps the core's signature mismatch
@@ -194,3 +195,12 @@ other nonzero result remains an error. The native C shim regression uses
 a stub core to check success, mismatch, unrelated failure, and buffer/ABI
 arguments without claiming to run CC310 hardware:
 python3 tools/test_cc310_ed25519.py.
+
+Ed25519 private keys retain their 32-byte RFC8032 seed format. The pinned
+Nordic PSA key-generation branch copies a generated seed without setting the
+output-length pointer, so the adapter's length check rejected a successful
+call. Seed generation now uses the existing CC310 TRNG-seeded AES CTR-DRBG
+directly under the Rust driver guard; public derivation and signatures still
+use CC310 PKA with explicit software SHA-512. The native C regression also
+checks exact seed length, DRBG initialization failure, generation failure
+and short output.

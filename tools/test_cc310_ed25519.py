@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Check the actual Ed25519 C shim's status mapping with a stub core."""
+"""Check the actual Ed25519 C shim against stub core and CTR-DRBG APIs."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -14,7 +14,9 @@ HARNESS = r"""
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <psa/crypto.h>
+#include <nrf_cc3xx_platform_ctr_drbg.h>
 #include <mbedtls_extra/mbedtls_cc_ec_mont_edw_error.h>
 
 static uint32_t core_result;
@@ -39,8 +41,68 @@ uint32_t CC_EcEdwVerify(const uint8_t *signature, size_t signature_size,
     return core_result;
 }
 
+static int init_result, random_result;
+static unsigned init_calls, free_calls, random_calls;
+static int short_output;
+static uint8_t *expected_seed;
+int opensk_cc310_ed25519_generate(uint8_t seed[32]);
+
+int nrf_cc3xx_platform_ctr_drbg_init(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context,
+    const uint8_t *personalization, size_t size)
+{
+    assert(context && !context->is_initialized);
+    assert(size == strlen("OpenSK nRF52840 CC310"));
+    assert(memcmp(personalization, "OpenSK nRF52840 CC310", size) == 0);
+    init_calls++;
+    if (!init_result) context->is_initialized = 1;
+    return init_result;
+}
+
+int nrf_cc3xx_platform_ctr_drbg_free(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context)
+{
+    memset(context, 0, sizeof(*context));
+    free_calls++;
+    return 0;
+}
+
+int nrf_cc3xx_platform_ctr_drbg_get(
+    nrf_cc3xx_platform_ctr_drbg_context_t * const context,
+    uint8_t *output, size_t size, size_t *written)
+{
+    assert(context && context->is_initialized);
+    assert(output == expected_seed && size == 32);
+    random_calls++;
+    *written = short_output ? size - 1 : size;
+    for (size_t i = 0; i < *written; i++) output[i] = (uint8_t)(i + 1);
+    return random_result;
+}
+
+static void test_seed_generation(void)
+{
+    uint8_t buffer[34];
+    memset(buffer, 0xa5, sizeof(buffer));
+    expected_seed = buffer + 1;
+    init_result = -1;
+    assert(opensk_cc310_ed25519_generate(expected_seed) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    for (size_t i = 0; i < sizeof(buffer); i++) assert(buffer[i] == 0xa5);
+    assert(init_calls == 1 && free_calls == 1 && random_calls == 0);
+    init_result = 0;
+    assert(opensk_cc310_ed25519_generate(expected_seed) == PSA_SUCCESS);
+    for (size_t i = 0; i < 32; i++) assert(expected_seed[i] == i + 1);
+    random_result = -1;
+    assert(opensk_cc310_ed25519_generate(expected_seed) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    random_result = 0;
+    short_output = 1;
+    assert(opensk_cc310_ed25519_generate(expected_seed) == PSA_ERROR_INSUFFICIENT_ENTROPY);
+    assert(init_calls == 2 && free_calls == 1 && random_calls == 3);
+    assert(buffer[0] == 0xa5 && buffer[33] == 0xa5);
+}
+
 int main(void)
 {
+    test_seed_generation();
     const uint8_t public_key[32] = {1}, signature[64] = {2}, message[] = {0x72};
     expected_message = message;
     expected_size = sizeof(message);
@@ -66,7 +128,7 @@ int main(void)
 
 
 class Ed25519ShimTest(unittest.TestCase):
-    def test_raw_verification_status_and_abi(self):
+    def test_seed_generation_and_verification_abi(self):
         includes = [
             CC310 / "src",
             CACHE / "mbedtls/include",

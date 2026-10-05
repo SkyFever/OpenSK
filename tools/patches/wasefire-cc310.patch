@@ -1633,10 +1633,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..0d4d0fcb
+index 00000000..e0f0a7d2
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,752 @@
+@@ -0,0 +1,753 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -1872,12 +1872,13 @@ index 00000000..0d4d0fcb
 +    psa_set_key_bits(&attr, 255);
 +    return attr;
 +}
++int opensk_cc310_random(uint8_t *output, size_t size);
 +int opensk_cc310_ed25519_generate(uint8_t seed[32])
 +{
-+    psa_key_attributes_t attr = ed25519_attributes(false);
-+    size_t size = 0;
-+    int status = cc3xx_generate_key(&attr, seed, 32, &size);
-+    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++    /* Ed25519 private storage is a uniformly random 32-byte seed. The pinned
++     * Nordic PSA keygen copies that seed but never reports its output length.
++     * Use our existing TRNG-seeded CC310 CTR-DRBG under the same Rust guard. */
++    return opensk_cc310_random(seed, 32);
 +}
 +int opensk_cc310_ed25519_public(const uint8_t seed[32], uint8_t public_key[32])
 +{
@@ -4161,10 +4162,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..794fd875
+index 00000000..c74f3a5f
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,239 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4283,10 +4284,15 @@ index 00000000..794fd875
 +    progress(4, 6);
 +    let mut fresh = [0; 32];
 +    Ed25519::generate(&mut fresh)?;
++    progress(4, 7);
 +    Ed25519::public(&fresh, &mut public)?;
++    progress(4, 8);
 +    Ed25519::sign(&fresh, b"random Ed25519", &mut r, &mut s)?;
++    progress(4, 9);
 +    check(Ed25519::verify(&public, b"random Ed25519", &r, &s)?)?;
++    progress(4, 10);
 +    Ed25519::drop_private(&mut fresh)?;
++    check(fresh == [0; 32])?;
 +    progress(5, 0);
 +    let private = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
 +    progress(5, 1);
