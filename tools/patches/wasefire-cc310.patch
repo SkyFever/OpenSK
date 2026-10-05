@@ -129,7 +129,7 @@ index 274b9dda..070c6116 100644
  name = "wasefire-one-of"
  version = "0.1.3-git"
 diff --git a/crates/runner-nordic/Cargo.toml b/crates/runner-nordic/Cargo.toml
-index e944075e..8155fe28 100644
+index e944075e..147f0b8f 100644
 --- a/crates/runner-nordic/Cargo.toml
 +++ b/crates/runner-nordic/Cargo.toml
 @@ -6,6 +6,7 @@ license = "Apache-2.0"
@@ -140,7 +140,7 @@ index e944075e..8155fe28 100644
  ble-adv = { path = "crates/ble-adv", optional = true }
  bytemuck = { version = "1.25.0", default-features = false, optional = true }
  cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
-@@ -74,7 +75,39 @@ uart = ["wasefire-scheduler/board-api-uart"]
+@@ -74,7 +75,43 @@ uart = ["wasefire-scheduler/board-api-uart"]
  usb-ctap = ["_usb", "dep:usbd-hid", "wasefire-scheduler/board-api-usb-ctap"]
  usb-serial = ["_usb", "dep:usbd-serial", "wasefire-scheduler/board-api-usb-serial"]
  
@@ -155,8 +155,12 @@ index e944075e..8155fe28 100644
 +  "wasefire-scheduler/board-api-crypto-p256-ecdsa",
 +]
 +
++cc310-self-test = ["cc310-primitives", "hardware-crypto-p256", "hardware-crypto-rng",
++  "hardware-crypto-symmetric",
++  "hardware-crypto-ed25519", "hardware-crypto-aes128-ccm", "nrf-cc310/self-test"]
++
 +cc310-primitives = ["dep:nrf-cc310", "nrf-cc310/hashes", "nrf-cc310/aes128",
-+  "nrf-cc310/chacha20poly1305", "nrf-cc310/x25519", "nrf-cc310/ecc", "nrf-cc310/rsa"]
++  "nrf-cc310/chacha20poly1305", "nrf-cc310/x25519", "nrf-cc310/ecc", "nrf-cc310/rsa", "nrf-cc310/srp"]
 +
 +hardware-crypto-aes128-ccm = ["_crypto", "dep:nrf-cc310", "nrf-cc310/aes128",
 +  "wasefire-scheduler/board-api-crypto-aes128-ccm"]
@@ -1043,10 +1047,10 @@ index 00000000..2fbf75db
 +checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 diff --git a/crates/runner-nordic/crates/cc310/Cargo.toml b/crates/runner-nordic/crates/cc310/Cargo.toml
 new file mode 100644
-index 00000000..d5e790c4
+index 00000000..7563e5d2
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/Cargo.toml
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,50 @@
 +[package]
 +name = "wasefire-nrf-cc310"
 +version = "0.1.0"
@@ -1062,6 +1066,9 @@ index 00000000..d5e790c4
 +x25519 = []
 +ecc = []
 +rsa = []
++srp = ["random"]
++self-test = ["ed25519", "random", "symmetric", "hashes", "aes128",
++  "chacha20poly1305", "x25519", "ecc", "rsa", "srp"]
 +chacha20poly1305 = []
 +aes128 = ["dep:typenum", "wasefire-board-api/api-crypto-aes128-ccm"]
 +ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
@@ -1096,10 +1103,10 @@ index 00000000..d5e790c4
 +rust.unsafe_op_in_unsafe_fn = "deny"
 diff --git a/crates/runner-nordic/crates/cc310/build.rs b/crates/runner-nordic/crates/cc310/build.rs
 new file mode 100644
-index 00000000..c35b046d
+index 00000000..30c8e4b2
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/build.rs
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,91 @@
 +// SPDX-License-Identifier: Apache-2.0
 +use std::path::PathBuf;
 +use std::process::Command;
@@ -1129,7 +1136,12 @@ index 00000000..c35b046d
 +    let nordic = cache.join("nrfxlib/crypto");
 +    let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 +    let cc = std::env::var_os("CC310_CC").unwrap_or_else(|| "clang-18".into());
-+    run(Command::new(cc)
++    let srp = std::env::var_os("CARGO_FEATURE_SRP").is_some();
++    let mut compiler = Command::new(cc);
++    if srp {
++        compiler.arg("-DOPENSK_CC310_SRP");
++    }
++    run(compiler
 +        .args([
 +            "--target=thumbv7em-none-eabi",
 +            "-mcpu=cortex-m4",
@@ -1171,11 +1183,20 @@ index 00000000..c35b046d
 +        println!("cargo::rustc-link-lib=static={name}");
 +        println!("cargo::rerun-if-changed={}", path.display());
 +    }
++    if srp {
++        let path = nordic.join("nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts");
++        println!("cargo::rustc-link-search=native={}", path.display());
++        println!("cargo::rustc-link-lib=static=nrf_cc310_legacy_crypto_0.9.19");
++        // Legacy SRP references the same version of the shared core.
++        println!("cargo::rustc-link-lib=static=nrf_cc310_core_0.9.19");
++        println!("cargo::rustc-link-lib=static=nrf_cc310_platform_0.9.19");
++    }
 +    for name in ["OPENSK_CC310_DIR", "CC310_CC", "CC310_AR"] {
 +        println!("cargo::rerun-if-env-changed={name}");
 +    }
 +    println!("cargo::rerun-if-changed=src/cc310.c");
 +    println!("cargo::rerun-if-changed=src/cc310_config.h");
++    println!("cargo::rerun-if-changed=src/cc_pka_hw_plat_defs.h");
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/aes128.rs b/crates/runner-nordic/crates/cc310/src/aes128.rs
 new file mode 100644
@@ -1584,10 +1605,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..02a52ccb
+index 00000000..bb1724be
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,554 @@
+@@ -0,0 +1,672 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -2142,6 +2163,124 @@ index 00000000..02a52ccb
 +        : cc3xx_asymmetric_decrypt(&attr, key, key_size, alg, input, input_size, label, label_size,
 +                                    output, capacity, written);
 +}
++
++#ifdef OPENSK_CC310_SRP
++
++/* The legacy SRP driver expects the Mbed TLS 2.x three-pointer MD ABI.
++ * It passes the opaque MD info back to these hooks without dereferencing it.
++ * Only SHA256 is enabled by this SRP adapter; all hashing remains CC310-backed.
++ * Keep these hooks separate from the newer PSA operation/context ABI. */
++typedef mbedtls_md_context_t opensk_legacy_md_context;
++/* The current header exposes the same first two pointer fields. These hooks
++ * never touch the legacy third (HMAC) pointer, since HMAC is disabled. */
++_Static_assert(sizeof(opensk_legacy_md_context) == 8, "MD prefix ABI");
++_Static_assert(offsetof(opensk_legacy_md_context, MBEDTLS_PRIVATE(md_ctx)) == 4, "MD state ABI");
++/* Opaque identity token. The legacy SRP object never reads its fields. */
++struct mbedtls_md_info_t { uint32_t marker; };
++static const mbedtls_md_info_t opensk_legacy_sha256_info = {0x256};
++extern void *mbedtls_calloc(size_t count, size_t size);
++extern void mbedtls_free(void *pointer);
++const mbedtls_md_info_t *mbedtls_md_info_from_string(const char *name)
++{
++    static const char expected[] = "SHA256";
++    for (size_t i = 0; i < sizeof(expected); i++) {
++        if (name[i] != expected[i]) return NULL;
++    }
++    return &opensk_legacy_sha256_info;
++}
++void mbedtls_md_init(opensk_legacy_md_context *ctx)
++{
++    *ctx = (opensk_legacy_md_context){0};
++}
++int mbedtls_md_setup(opensk_legacy_md_context *ctx, const mbedtls_md_info_t *info, int hmac)
++{
++    if (info != &opensk_legacy_sha256_info || hmac) return -0x5100;
++    ctx->MBEDTLS_PRIVATE(md_ctx) = mbedtls_calloc(1, sizeof(cc3xx_hash_operation_t));
++    if (!ctx->MBEDTLS_PRIVATE(md_ctx)) return -0x5180;
++    ctx->MBEDTLS_PRIVATE(md_info) = info;
++    return 0;
++}
++int mbedtls_md_starts(opensk_legacy_md_context *ctx)
++{
++    return cc3xx_hash_setup(ctx->MBEDTLS_PRIVATE(md_ctx), PSA_ALG_SHA_256);
++}
++int mbedtls_md_update(opensk_legacy_md_context *ctx, const uint8_t *input, size_t size)
++{
++    return cc3xx_hash_update(ctx->MBEDTLS_PRIVATE(md_ctx), input, size);
++}
++int mbedtls_md_finish(opensk_legacy_md_context *ctx, uint8_t *output)
++{
++    size_t written = 0;
++    int result = cc3xx_hash_finish(ctx->MBEDTLS_PRIVATE(md_ctx), output, 32, &written);
++    return result ? result : (written == 32 ? 0 : -0x5100);
++}
++void mbedtls_md_free(opensk_legacy_md_context *ctx)
++{
++    if (ctx->MBEDTLS_PRIVATE(md_ctx)) {
++        cc3xx_hash_abort(ctx->MBEDTLS_PRIVATE(md_ctx));
++        mbedtls_free(ctx->MBEDTLS_PRIVATE(md_ctx));
++    }
++    *ctx = (opensk_legacy_md_context){0};
++}
++int mbedtls_md(const mbedtls_md_info_t *info, const uint8_t *input, size_t size, uint8_t *output)
++{
++    if (info != &opensk_legacy_sha256_info) return -0x5100;
++    size_t written = 0;
++    int result = cc3xx_hash_compute(PSA_ALG_SHA_256, input, size, output, 32, &written);
++    return result ? result : (written == 32 ? 0 : -0x5100);
++}
++#include <mbedtls_extra/mbedtls_cc_srp.h>
++_Static_assert(sizeof(mbedtls_srp_context) == 1020, "SRP legacy ABI");
++_Static_assert(offsetof(mbedtls_srp_context, hashMode) == 424, "SRP hash ABI");
++_Static_assert(offsetof(mbedtls_srp_context, pRndCtx) == 436, "SRP RNG ABI");
++_Static_assert(_Alignof(mbedtls_srp_context) <= _Alignof(uint32_t), "SRP alignment");
++_Static_assert(sizeof(mbedtls_srp_context) % sizeof(uint32_t) == 0, "SRP size");
++static int opensk_srp_random(void *state, unsigned char *output, size_t size)
++{
++    (void)state;
++    return opensk_cc310_random(output, size);
++}
++static CCRndContext_t opensk_srp_random_context = {
++    .rndState = NULL, .entropyCtx = NULL, .rndGenerateVectFunc = opensk_srp_random
++};
++size_t opensk_cc310_srp_size(void) { return sizeof(mbedtls_srp_context); }
++size_t opensk_cc310_srp_key_size(const mbedtls_srp_context *ctx) { return ctx->sessionKeySize; }
++int opensk_cc310_srp_init(mbedtls_srp_context *ctx, bool host, uint8_t *modulus,
++                          size_t size, uint8_t generator, uint8_t *user,
++                          size_t user_size, uint8_t *password, size_t password_size)
++{
++    return mbedtls_srp_init(host ? CC_SRP_HOST : CC_SRP_USER, CC_SRP_VER_6A,
++                            modulus, generator, size * 8, CC_HASH_SHA256_mode,
++                            user, user_size, password, password_size,
++                            &opensk_srp_random_context, ctx);
++}
++int opensk_cc310_srp_verifier(mbedtls_srp_context *ctx, uint8_t *salt, size_t salt_size,
++                              uint8_t *verifier)
++{
++    return mbedtls_srp_pwd_ver_create(salt_size, salt, verifier, ctx);
++}
++int opensk_cc310_srp_public(mbedtls_srp_context *ctx, bool host, uint8_t *verifier, uint8_t *output)
++{
++    return host ? mbedtls_srp_host_pub_key_create(32, verifier, output, ctx)
++                : mbedtls_srp_user_pub_key_create(32, output, ctx);
++}
++int opensk_cc310_srp_user_proof(mbedtls_srp_context *ctx, uint8_t *salt, size_t salt_size,
++                                uint8_t *a, uint8_t *b, uint8_t *proof, uint8_t *key)
++{
++    return mbedtls_srp_user_proof_calc(salt_size, salt, a, b, proof, key, ctx);
++}
++int opensk_cc310_srp_host_proof(mbedtls_srp_context *ctx, uint8_t *salt, size_t salt_size,
++                                uint8_t *verifier, uint8_t *a, uint8_t *b, uint8_t *user_proof,
++                                uint8_t *proof, uint8_t *key)
++{
++    return mbedtls_srp_host_proof_verify_and_calc(salt_size, salt, verifier, a, b, user_proof, proof, key, ctx);
++}
++int opensk_cc310_srp_user_verify(mbedtls_srp_context *ctx, uint8_t *key, uint8_t *a,
++                                 uint8_t *user_proof, uint8_t *host_proof)
++{
++    return mbedtls_srp_user_proof_verify(key, a, user_proof, host_proof, ctx);
++}
++#endif
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310_config.h b/crates/runner-nordic/crates/cc310/src/cc310_config.h
 new file mode 100644
 index 00000000..2df14eef
@@ -2155,6 +2294,20 @@ index 00000000..2df14eef
 +#define MBEDTLS_PSA_CRYPTO_C
 +#define MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG
 +#define PSA_CRYPTO_DRIVER_CC3XX
++#endif
+diff --git a/crates/runner-nordic/crates/cc310/src/cc_pka_hw_plat_defs.h b/crates/runner-nordic/crates/cc310/src/cc_pka_hw_plat_defs.h
+new file mode 100644
+index 00000000..9f384d69
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/cc_pka_hw_plat_defs.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#ifndef OPENSK_CC_PKA_HW_PLAT_DEFS_H
++#define OPENSK_CC_PKA_HW_PLAT_DEFS_H
++/* nrfxlib omits this private header. SRP uses only the public fixed five-word
++ * Barrett buffer; none of the platform-dependent macros are expanded.
++ * Do not define guessed PKA limits here. The C shim asserts the complete SRP
++ * layout against the pinned legacy binary (1020 bytes). */
 +#endif
 diff --git a/crates/runner-nordic/crates/cc310/src/chacha20poly1305.rs b/crates/runner-nordic/crates/cc310/src/chacha20poly1305.rs
 new file mode 100644
@@ -2843,10 +2996,10 @@ index 00000000..595cbf43
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/lib.rs b/crates/runner-nordic/crates/cc310/src/lib.rs
 new file mode 100644
-index 00000000..72317c53
+index 00000000..2023fdc9
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/lib.rs
-@@ -0,0 +1,356 @@
+@@ -0,0 +1,362 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! nRF52840 CC310 P-256 adapter. Keys retain Wasefire's big-endian wire format.
 +#![no_std]
@@ -2893,6 +3046,12 @@ index 00000000..72317c53
 +
 +#[cfg(feature = "rsa")]
 +pub mod rsa;
++
++#[cfg(all(feature = "srp", target_arch = "arm"))]
++pub mod srp;
++
++#[cfg(all(feature = "self-test", target_arch = "arm"))]
++pub mod self_test;
 +
 +pub enum Impl {}
 +impl Supported for Impl {}
@@ -3709,6 +3868,436 @@ index 00000000..68547d5c
 +            0
 +        }
 +        Err(_) => -149,
++    }
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
+new file mode 100644
+index 00000000..3e3505eb
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
++use alloc::vec;
++
++use wasefire_board_api::Error;
++use wasefire_board_api::crypto::ed25519::Api;
++
++use crate::{Ed25519, aes128, chacha20poly1305, ecc, hashes, rsa, srp, x25519};
++fn check(ok: bool) -> Result<(), Error> {
++    if ok { Ok(()) } else { Err(Error::world(0)) }
++}
++fn hex<const N: usize>(value: &str) -> [u8; N] {
++    assert_eq!(value.len(), N * 2);
++    let mut result = [0; N];
++    for (i, x) in result.iter_mut().enumerate() {
++        *x = u8::from_str_radix(&value[2 * i .. 2 * i + 2], 16).unwrap();
++    }
++    result
++}
++pub fn run(mut progress: impl FnMut(u32)) -> Result<(), Error> {
++    progress(1);
++    let (mut a, mut b) = ([0; 32], [0; 32]);
++    crate::fill_entropy(&mut a)?;
++    crate::fill_entropy(&mut b)?;
++    check(a != b && a.iter().any(|&x| x != 0) && b.iter().any(|&x| x != 0))?;
++    crate::fill_random(&mut a)?;
++    crate::fill_random(&mut b)?;
++    check(a != b)?;
++    progress(2);
++    let mut digest = [0; 32];
++    hashes::hash(hashes::Algorithm::Sha1, b"abc", &mut digest[.. 20])?;
++    check(digest[.. 20] == hex::<20>("a9993e364706816aba3e25717850c26c9cd0d89d"))?;
++    hashes::hash(hashes::Algorithm::Sha224, b"abc", &mut digest[.. 28])?;
++    check(digest[.. 28] == hex::<28>("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"))?;
++    hashes::hash(hashes::Algorithm::Sha256, b"abc", &mut digest)?;
++    check(digest == hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))?;
++    hashes::hmac(hashes::Algorithm::Sha1, &[0x0b; 20], b"Hi There", &mut digest[.. 20])?;
++    check(digest[.. 20] == hex::<20>("b617318655057264e28bc0b6fb378c8ef146be00"))?;
++    hashes::hmac(
++        hashes::Algorithm::Sha224,
++        &[0xaa; 131],
++        b"Test Using Larger Than Block-Size Key - Hash Key First",
++        &mut digest[.. 28],
++    )?;
++    check(digest[.. 28] == hex::<28>("95e9a0db962095adaebe9b2d6f0dbce2d499f112f2d2b7273fa6870e"))?;
++    progress(3);
++    let key = hex::<16>("2b7e151628aed2a6abf7158809cf4f3c");
++    let data = hex::<16>("6bc1bee22e409f96e93d7e117393172a");
++    for (mode, iv, answer) in [
++        (aes128::Mode::Ecb, [0; 16], "3ad77bb40d7a3660a89ecaf32466ef97"),
++        (
++            aes128::Mode::Cbc,
++            hex("000102030405060708090a0b0c0d0e0f"),
++            "7649abac8119b246cee98e9b12e9197d",
++        ),
++        (
++            aes128::Mode::Ctr,
++            hex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"),
++            "874d6191b620e3261bef6864990db6ce",
++        ),
++    ] {
++        let (mut out, mut clear) = ([0; 16], [0; 16]);
++        aes128::cipher(mode, true, &key, &iv, &data, &mut out)?;
++        check(out == hex::<16>(answer))?;
++        aes128::cipher(mode, false, &key, &iv, &out, &mut clear)?;
++        check(clear == data)?;
++    }
++    let mut mac = [0; 16];
++    aes128::cmac(&key, b"", &mut mac)?;
++    check(mac == hex("bb1d6929e95937287fa37d129b756746"))?;
++    aes128::cbc_mac(&key, &data, &mut mac)?;
++    check(mac == hex("3ad77bb40d7a3660a89ecaf32466ef97"))?;
++    let (mut cipher, mut clear, mut tag) = ([0; 16], [0; 16], [0; 8]);
++    aes128::ccm_encrypt(&key, &[0x11; 13], b"aad", &data, &mut cipher, &mut tag)?;
++    aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear)?;
++    check(clear == data)?;
++    tag[0] ^= 1;
++    check(aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear).is_err())?;
++    progress(4);
++    let seed = hex::<32>("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
++    let (mut r, mut s, mut public) = ([0; 32], [0; 32], [0; 32]);
++    Ed25519::public(&seed, &mut public)?;
++    Ed25519::sign(&seed, &[0x72], &mut r, &mut s)?;
++    check(r == hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"))?;
++    check(s == hex("085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"))?;
++    check(Ed25519::verify(&public, &[0x72], &r, &s)?)?;
++    check(!Ed25519::verify(&public, &[0x73], &r, &s)?)?;
++    let mut fresh = [0; 32];
++    Ed25519::generate(&mut fresh)?;
++    Ed25519::public(&fresh, &mut public)?;
++    Ed25519::sign(&fresh, b"random Ed25519", &mut r, &mut s)?;
++    check(Ed25519::verify(&public, b"random Ed25519", &r, &s)?)?;
++    Ed25519::drop_private(&mut fresh)?;
++    progress(5);
++    let private = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
++    x25519::public(&private, &mut public)?;
++    check(public == hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"))?;
++    let peer = hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
++    x25519::shared(&private, &peer, &mut a)?;
++    check(a == hex("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"))?;
++    check(x25519::shared(&private, &[0; 32], &mut a).is_err())?;
++    progress(6);
++    for curve in [
++        ecc::Curve::P192,
++        ecc::Curve::P224,
++        ecc::Curve::P256,
++        ecc::Curve::P384,
++        ecc::Curve::Secp192k1,
++        ecc::Curve::Secp224k1,
++        ecc::Curve::Secp256k1,
++        ecc::Curve::BrainpoolP256r1,
++    ] {
++        let size = curve.scalar_size();
++        let mut key = zeroize::Zeroizing::new(vec![0; size]);
++        key[size - 1] = 1;
++        let mut pubkey = vec![0; curve.public_size()];
++        ecc::public(curve, &key, &mut pubkey)?;
++        let mut sig = vec![0; 2 * size];
++        ecc::sign(curve, &key, &[0x42; 32], &mut sig)?;
++        check(ecc::verify(curve, &pubkey, &[0x42; 32], &sig)?)?;
++        check(!ecc::verify(curve, &pubkey, &[0x43; 32], &sig)?)?;
++        let mut secret = zeroize::Zeroizing::new(vec![0; size]);
++        ecc::shared(curve, &key, &pubkey, &mut secret)?;
++        check(secret.as_slice() == &pubkey[1 .. 1 + size])?;
++        ecc::generate(curve, &mut key)?;
++        ecc::public(curve, &key, &mut pubkey)?;
++    }
++    progress(7);
++    let bits = rsa::Bits::B2048;
++    let private = rsa::generate(bits)?;
++    let public = rsa::public(bits, &private)?;
++    for padding in [rsa::SignaturePadding::Pkcs1v15, rsa::SignaturePadding::Pss] {
++        let mut sig = [0; 256];
++        rsa::sign(bits, padding, &private, &[0x42; 32], &mut sig)?;
++        check(rsa::verify(bits, padding, &public, &[0x42; 32], &sig)?)?;
++        check(!rsa::verify(bits, padding, &public, &[0x43; 32], &sig)?)?;
++    }
++    for padding in [rsa::EncryptionPadding::Pkcs1v15, rsa::EncryptionPadding::OaepSha256] {
++        let mut cipher = [0; 256];
++        rsa::encrypt(bits, padding, &public, b"", b"CC310 RSA", &mut cipher)?;
++        let clear = rsa::decrypt(bits, padding, &private, b"", &cipher)?;
++        check(clear.as_slice() == b"CC310 RSA")?;
++    }
++    progress(8);
++    srp_roundtrip(false)?;
++    srp_roundtrip(true)?;
++    progress(9);
++    let key = hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
++    let nonce = hex("070000004041424344454647");
++    let aad = hex::<12>("50515253c0c1c2c3c4c5c6c7");
++    let message=b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
++    let (mut cipher, mut clear, mut tag) = ([0; 114], [0; 114], [0; 16]);
++    chacha20poly1305::encrypt(&key, &nonce, &aad, message, &mut cipher, &mut tag)?;
++    check(tag == hex("1ae10b594f09e26a7e902ecbd0600691"))?;
++    chacha20poly1305::decrypt(&key, &nonce, &aad, &cipher, &tag, &mut clear)?;
++    check(&clear == message)?;
++    tag[0] ^= 1;
++    check(chacha20poly1305::decrypt(&key, &nonce, &aad, &cipher, &tag, &mut clear).is_err())?;
++    Ok(())
++}
++fn srp_roundtrip(tamper: bool) -> Result<(), Error> {
++    // RFC5054's 3072-bit group: RFC3526 prime, generator 5.
++    let modulus=hex::<384>("ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a93ad2caffffffffffffffff");
++    let mut user = srp::Context::new(
++        srp::Entity::User,
++        &modulus,
++        5,
++        b"cc310-test",
++        Some(b"ephemeral-test-password"),
++    )?;
++    let mut host = srp::Context::new(srp::Entity::Host, &modulus, 5, b"cc310-test", None)?;
++    let mut salt = [0; 16];
++    let verifier = user.verifier(&mut salt)?;
++    let a = user.public(None)?;
++    let b = host.public(Some(&verifier))?;
++    let mut session = user.user_proof(&salt, &a, &b)?;
++    if tamper {
++        session.proof[0] ^= 1;
++        check(host.host_proof(&salt, &verifier, &a, &b, &session.proof).is_err())
++    } else {
++        let host_session = host.host_proof(&salt, &verifier, &a, &b, &session.proof)?;
++        check(session.key == host_session.key)?;
++        user.user_verify(&session.key, &a, &session.proof, &host_session.proof)
++    }
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/srp.rs b/crates/runner-nordic/crates/cc310/src/srp.rs
+new file mode 100644
+index 00000000..898d9f4d
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/srp.rs
+@@ -0,0 +1,233 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Nordic legacy SRP-6a/SHA-256, available on ARM. Caller supplies a trusted group.
++//! A context belongs to one exchange. Do not reuse ephemeral keys across exchanges.
++use alloc::vec;
++use alloc::vec::Vec;
++use core::ffi::c_void;
++
++use wasefire_board_api::Error;
++use zeroize::{Zeroize, Zeroizing};
++
++use crate::{driver, length};
++
++#[derive(Clone, Copy)]
++pub enum Entity {
++    User,
++    Host,
++}
++pub struct Session {
++    pub proof: [u8; 32],
++    pub key: Zeroizing<Vec<u8>>,
++}
++pub struct Context {
++    memory: Zeroizing<Vec<u32>>,
++    modulus_size: usize,
++    key_size: usize,
++    host: bool,
++}
++impl Context {
++    /// The modulus must be a trusted prime of 1024,1536,2048 or 3072 bits.
++    pub fn new(
++        entity: Entity, modulus: &[u8], generator: u8, user: &[u8], password: Option<&[u8]>,
++    ) -> Result<Self, Error> {
++        let host = matches!(entity, Entity::Host);
++        if !matches!(modulus.len(), 128 | 192 | 256 | 384)
++            || modulus[0] & 0x80 == 0
++            || modulus[modulus.len() - 1] & 1 == 0
++            || generator < 2
++            || user.is_empty()
++            || (!host && password.is_none_or(|x| x.is_empty()))
++            || password.is_some_and(|x| x.is_empty())
++        {
++            return Err(Error::user(0));
++        }
++        // SAFETY: Size getter is a pure ABI query. The C shim statically verifies u32 alignment.
++        let size = unsafe { ffi::opensk_cc310_srp_size() };
++        if size == 0 || !size.is_multiple_of(4) || size > 8192 {
++            return Err(Error::world(0));
++        }
++        let mut result = Self {
++            memory: Zeroizing::new(vec![0; size / 4]),
++            modulus_size: modulus.len(),
++            key_size: 0,
++            host,
++        };
++        // The legacy API declares mutable inputs; give it owned, fully sized buffers.
++        let mut n = Zeroizing::new(vec![0; 384]);
++        n[.. modulus.len()].copy_from_slice(modulus);
++        let mut user = Zeroizing::new(user.to_vec());
++        let mut password = Zeroizing::new(password.unwrap_or_default().to_vec());
++        // SAFETY: Context and maximum-width modulus are correctly sized; other inputs are live
++        // copies.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_init(
++                result.ptr(),
++                host,
++                n.as_mut_ptr(),
++                modulus.len(),
++                generator,
++                user.as_mut_ptr(),
++                user.len(),
++                if password.is_empty() { core::ptr::null_mut() } else { password.as_mut_ptr() },
++                password.len(),
++            )
++        })?;
++        // SAFETY: The successfully initialized, exclusively owned context is live.
++        result.key_size = unsafe { ffi::opensk_cc310_srp_key_size(result.ptr()) };
++        if result.key_size == 0 || result.key_size > 128 {
++            return Err(Error::world(0));
++        }
++        Ok(result)
++    }
++    fn ptr(&mut self) -> *mut c_void {
++        self.memory.as_mut_ptr().cast()
++    }
++    fn salt(salt: &[u8]) -> Result<(), Error> {
++        if (8 ..= 64).contains(&salt.len()) { Ok(()) } else { Err(Error::user(0)) }
++    }
++    fn modulus(&self, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
++        length(value, self.modulus_size)?;
++        let mut result = Zeroizing::new(vec![0; 384]);
++        result[.. value.len()].copy_from_slice(value);
++        Ok(result)
++    }
++    /// Creates fresh salt and the password verifier using the initialized credentials.
++    pub fn verifier(&mut self, salt: &mut [u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
++        Self::salt(salt)?;
++        let mut s = Zeroizing::new(salt.to_vec());
++        let mut v = Zeroizing::new(vec![0; 384]);
++        // SAFETY: Context is exclusive; legacy fixed-width output is fully reserved.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_verifier(self.ptr(), s.as_mut_ptr(), s.len(), v.as_mut_ptr())
++        })?;
++        salt.copy_from_slice(&s);
++        v[self.modulus_size ..].zeroize();
++        v.truncate(self.modulus_size);
++        Ok(v)
++    }
++    pub fn public(&mut self, verifier: Option<&[u8]>) -> Result<Vec<u8>, Error> {
++        let mut v = if self.host {
++            self.modulus(verifier.ok_or(Error::user(0))?)?
++        } else {
++            if verifier.is_some() {
++                return Err(Error::user(0));
++            }
++            Zeroizing::new(vec![0; 384])
++        };
++        let mut output = vec![0; 384];
++        // SAFETY: All legacy modulus arrays have their full 384-byte capacity.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_public(self.ptr(), self.host, v.as_mut_ptr(), output.as_mut_ptr())
++        })?;
++        output.truncate(self.modulus_size);
++        Ok(output)
++    }
++    pub fn user_proof(&mut self, salt: &[u8], a: &[u8], b: &[u8]) -> Result<Session, Error> {
++        if self.host {
++            return Err(Error::user(0));
++        }
++        Self::salt(salt)?;
++        let mut salt = Zeroizing::new(salt.to_vec());
++        let (mut a, mut b) = (self.modulus(a)?, self.modulus(b)?);
++        let mut proof = [0; 64];
++        let mut key = Zeroizing::new(vec![0; 128]);
++        // SAFETY: Fixed-width legacy buffers and exclusive initialized context are live.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_user_proof(
++                self.ptr(),
++                salt.as_mut_ptr(),
++                salt.len(),
++                a.as_mut_ptr(),
++                b.as_mut_ptr(),
++                proof.as_mut_ptr(),
++                key.as_mut_ptr(),
++            )
++        })?;
++        key[self.key_size ..].zeroize();
++        key.truncate(self.key_size);
++        Ok(Session { proof: proof[.. 32].try_into().unwrap(), key })
++    }
++    pub fn host_proof(
++        &mut self, salt: &[u8], verifier: &[u8], a: &[u8], b: &[u8], user_proof: &[u8; 32],
++    ) -> Result<Session, Error> {
++        if !self.host {
++            return Err(Error::user(0));
++        }
++        Self::salt(salt)?;
++        let mut salt = Zeroizing::new(salt.to_vec());
++        let (mut v, mut a, mut b) = (self.modulus(verifier)?, self.modulus(a)?, self.modulus(b)?);
++        let mut user = [0; 64];
++        user[.. 32].copy_from_slice(user_proof);
++        let mut proof = [0; 64];
++        let mut key = Zeroizing::new(vec![0; 128]);
++        // SAFETY: Every legacy fixed-width output/input is fully allocated.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_host_proof(
++                self.ptr(),
++                salt.as_mut_ptr(),
++                salt.len(),
++                v.as_mut_ptr(),
++                a.as_mut_ptr(),
++                b.as_mut_ptr(),
++                user.as_mut_ptr(),
++                proof.as_mut_ptr(),
++                key.as_mut_ptr(),
++            )
++        })?;
++        key[self.key_size ..].zeroize();
++        key.truncate(self.key_size);
++        Ok(Session { proof: proof[.. 32].try_into().unwrap(), key })
++    }
++    pub fn user_verify(
++        &mut self, key: &[u8], a: &[u8], user_proof: &[u8; 32], host_proof: &[u8; 32],
++    ) -> Result<(), Error> {
++        if self.host {
++            return Err(Error::user(0));
++        }
++        length(key, self.key_size)?;
++        let mut k = Zeroizing::new(vec![0; 128]);
++        k[.. key.len()].copy_from_slice(key);
++        let mut a = self.modulus(a)?;
++        let (mut user, mut host) = ([0; 64], [0; 64]);
++        user[.. 32].copy_from_slice(user_proof);
++        host[.. 32].copy_from_slice(host_proof);
++        // SAFETY: Full legacy buffers and exclusive context remain alive throughout the call.
++        driver(|| unsafe {
++            ffi::opensk_cc310_srp_user_verify(
++                self.ptr(),
++                k.as_mut_ptr(),
++                a.as_mut_ptr(),
++                user.as_mut_ptr(),
++                host.as_mut_ptr(),
++            )
++        })
++    }
++}
++mod ffi {
++    use core::ffi::c_void;
++    unsafe extern "C" {
++        pub fn opensk_cc310_srp_size() -> usize;
++        pub fn opensk_cc310_srp_key_size(ctx: *mut c_void) -> usize;
++        pub fn opensk_cc310_srp_init(
++            ctx: *mut c_void, host: bool, modulus: *mut u8, size: usize, generator: u8,
++            user: *mut u8, user_size: usize, password: *mut u8, password_size: usize,
++        ) -> i32;
++        pub fn opensk_cc310_srp_verifier(
++            ctx: *mut c_void, salt: *mut u8, size: usize, verifier: *mut u8,
++        ) -> i32;
++        pub fn opensk_cc310_srp_public(
++            ctx: *mut c_void, host: bool, verifier: *mut u8, output: *mut u8,
++        ) -> i32;
++        pub fn opensk_cc310_srp_user_proof(
++            ctx: *mut c_void, salt: *mut u8, salt_size: usize, a: *mut u8, b: *mut u8,
++            proof: *mut u8, key: *mut u8,
++        ) -> i32;
++        pub fn opensk_cc310_srp_host_proof(
++            ctx: *mut c_void, salt: *mut u8, salt_size: usize, verifier: *mut u8, a: *mut u8,
++            b: *mut u8, user_proof: *mut u8, proof: *mut u8, key: *mut u8,
++        ) -> i32;
++        pub fn opensk_cc310_srp_user_verify(
++            ctx: *mut c_void, key: *mut u8, a: *mut u8, user_proof: *mut u8, host_proof: *mut u8,
++        ) -> i32;
 +    }
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/symmetric.rs b/crates/runner-nordic/crates/cc310/src/symmetric.rs
@@ -4696,7 +5285,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..9095f70a 100644
+index 891500fd..53bbb89a 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -4707,7 +5296,15 @@ index 891500fd..9095f70a 100644
  use nrf52840_hal::rng::Rng;
  use nrf52840_hal::usbd::{UsbPeripheral, Usbd};
  #[cfg(feature = "release")]
-@@ -116,6 +117,7 @@ struct State {
+@@ -67,6 +68,7 @@ use wasefire_board_api::{Id, Support};
+ use wasefire_interpreter as _;
+ use wasefire_logger as log;
+ use wasefire_one_of::{at_most_one_of, exactly_one_of};
++#[cfg(not(feature = "cc310-self-test"))]
+ use wasefire_scheduler::Scheduler;
+ 
+ use crate::board::button::{Button, Channels};
+@@ -116,6 +118,7 @@ struct State {
      #[cfg(feature = "gpio")]
      gpios: [Gpio; <board::gpio::Impl as Support<usize>>::SUPPORT],
      leds: [Pin<Output<PushPull>>; <led::Impl as Support<usize>>::SUPPORT],
@@ -4715,7 +5312,7 @@ index 891500fd..9095f70a 100644
      rng: Rng,
      storage: Option<Storage>,
      #[cfg(feature = "uart")]
-@@ -237,6 +239,7 @@ fn main() -> ! {
+@@ -237,6 +240,7 @@ fn main() -> ! {
          let radio = BleRadio::new(p.RADIO, &p.FICR, ble_tx, ble_rx);
          Ble::new(radio, p.TIMER0)
      };
@@ -4723,7 +5320,7 @@ index 891500fd..9095f70a 100644
      let rng = Rng::new(p.RNG);
      #[cfg(feature = "aes128-ccm")]
      let ccm = Ccm::init(p.CCM, p.AAR, DataRate::_1Mbit);
-@@ -272,6 +275,7 @@ fn main() -> ! {
+@@ -272,6 +276,7 @@ fn main() -> ! {
          #[cfg(feature = "gpio")]
          gpios,
          leds,
@@ -4731,6 +5328,58 @@ index 891500fd..9095f70a 100644
          rng,
          storage,
          #[cfg(feature = "uart")]
+@@ -285,6 +290,9 @@ fn main() -> ! {
+         unsafe { NVIC::unmask(interrupt) };
+     }
+     log::debug!("Runner is initialized.");
++    #[cfg(feature = "cc310-self-test")]
++    cc310_self_test();
++    #[cfg(not(feature = "cc310-self-test"))]
+     Scheduler::<Board>::run();
+ }
+ 
+@@ -393,3 +401,41 @@ fn usbd() {
+         state.serial.tick(polled, |event| state.events.push(event.into()));
+     });
+ }
++
++#[cfg(all(feature = "cc310-self-test", not(feature = "board-makerdiary")))]
++compile_error!("cc310-self-test LED diagnostics require Makerdiary");
++
++// Diagnostic builds halt after finite RAM-only checks. Normal firmware omits this.
++#[cfg(feature = "cc310-self-test")]
++fn cc310_self_test() -> ! {
++    use embedded_hal::digital::OutputPin;
++    fn color(code: u32) {
++        with_state(|state| {
++            for (index, led) in state.leds.iter_mut().enumerate() {
++                if code & (1 << index) != 0 {
++                    let _ = led.set_low();
++                } else {
++                    let _ = led.set_high();
++                }
++            }
++        });
++    }
++    let mut stage = 0;
++    let result = nrf_cc310::self_test::run(|next| {
++        stage = next;
++        log::debug!("CC310 self-test stage {}", next);
++        color(if next < 8 { next } else { 7 });
++    });
++    log::debug!("CC310 self-test: stage={} result={:?}", stage, result);
++    loop {
++        // Green blinking: all checks passed. Red bursts count the failed stage.
++        let (count, code) = if result.is_ok() { (1, 2) } else { (stage, 1) };
++        for _ in 0 .. count {
++            color(code);
++            cortex_m::asm::delay(8_000_000);
++            color(0);
++            cortex_m::asm::delay(8_000_000);
++        }
++        cortex_m::asm::delay(32_000_000);
++    }
++}
 diff --git a/examples/rust/crypto_compare/.gitignore b/examples/rust/crypto_compare/.gitignore
 new file mode 100644
 index 00000000..b83d2226

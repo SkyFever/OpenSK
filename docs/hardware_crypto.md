@@ -119,3 +119,20 @@ PKCS#1 DER public/private keys, SHA-256 PKCS#1 v1.5/PSS signatures and
 PKCS#1 v1.5/OAEP-SHA256 encryption/decryption. Secret DER and plaintext
 buffers are zeroized. RSA-2048 host OpenSSL round trips and rejection checks
 pass; physical-device RSA execution is pending.
+
+The ARM-only `srp` adapter feature provides Nordic legacy SRP-6a/SHA-256
+contexts for trusted 1024/1536/2048/3072-bit groups, random salt/verifiers,
+ephemeral public keys, session keys and mutual proofs. It uses the same
+v0.9.19 legacy/core libraries and CC310 SHA-256 hooks; secret contexts are wiped.
+ABI assertions match the pinned 1020-byte SRP context. SRP has passed ARM
+compilation and full linking; its cryptographic execution is still pending.
+
+Build the single hardware diagnostic image with
+`./tools/build_cc310_tests.sh --self-test-only`. It writes
+`build/hw-crypto/nordic-self-test.uf2` and halts after RAM-only checks.
+Repeated green blinking means all stages passed. Red bursts indicate the
+failed stage: 1 TRNG/DRBG, 2 hashes/HMAC, 3 AES-128, 4 Ed25519, 5 X25519,
+6 additional ECC, 7 RSA, 8 SRP-3072, 9 ChaCha20-Poly1305. A hang leaves the
+active stage color; RTT logs provide the stage and error. The diagnostic image
+has no FIDO event loop; restore the normal OpenSK UF2 after recording its result.
+No hardware execution is implied by successfully building this image.

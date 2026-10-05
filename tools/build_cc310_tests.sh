@@ -22,6 +22,11 @@ build_image() {
     --output="$OUT/$name.uf2" "$OUT/$name.hex"
   python3 ../../tools/makerdiary_artifacts.py verify-uf2 "$OUT/$name.uf2"
 }
+if [[ "$@" == "--self-test-only" ]]; then
+  build_image hello nordic-self-test "$NORDIC,cc310-self-test" ""
+  printf 'RAM-only self-test image built; device execution is pending.\n'
+  exit 0
+fi
 # Dual-slot flash/bootloader packaging cannot fit both crypto references plus
 # Ed25519 after adding mandatory software AES-256. Keep Ed25519 in its own
 # vector image; the shared benchmark covers P-256, CBC and SHA/HMAC.

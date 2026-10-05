@@ -293,9 +293,69 @@
       "sha256": "c876e91f113cda3e0eff6601c9b586ca6d8ed6886c802badc754bfad62c46a38"
     },
     {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_aes_defs.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_aes_defs.h",
+      "sha256": "6bbf32f7711335ddf6752a942764d580a5bf7f090f34e6a1bf718276a8bdcc24"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_aes_defs_proj.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_aes_defs_proj.h",
+      "sha256": "9347dce9dc0ebb551a215303dc23f284576379bd0ff8dc3839cb53d44726dfe5"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_error.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_error.h",
+      "sha256": "cf35613c8b8d749c770c1a5426e6eae654a67d392598a2ce35d6ad3e653c3646"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_hash_defs.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_hash_defs.h",
+      "sha256": "0ba1de84f7153c93338805ba70f111d8acc459533c1e61fa1bdd3f96cd9d843d"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_hash_defs_proj.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_hash_defs_proj.h",
+      "sha256": "894c2593e7de6467a39801feb584b0e6112d4679042a9c04efddec2057f8492b"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pal_types.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pal_types.h",
+      "sha256": "3539dbfcfc24b7b585d5a5860b5c327248c2f350143fcd3fee6777f111732fa5"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pal_types_plat.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pal_types_plat.h",
+      "sha256": "529064cad4e61665073e3d5302918ebe72ef3a349871bb4578a5b6fec01804f5"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pka_defs_hw.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_pka_defs_hw.h",
+      "sha256": "46089ffbab548df52b3da44fa041f4386dcf61a27d47511dc1c588d9c899d080"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_rnd_common.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/cc_rnd_common.h",
+      "sha256": "38f7e3cda05e3509a93dd867cd02fa750c15d4c9edea16d9f03252e9a480c8a2"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/mbedtls_cc_srp.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/mbedtls_cc_srp.h",
+      "sha256": "ce85be840863daa4ae8bc55bcfbc5c347fbf616bb28c387a5ca8ac3ca2c291a6"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/mbedtls_cc_srp_error.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/mbedtls_extra/mbedtls_cc_srp_error.h",
+      "sha256": "69160553a3f0b5df3624091471da0054889796de2f13329c3df540a8ac73541b"
+    },
+    {
       "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_core_0.9.19.a",
       "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_core_0.9.19.a",
       "sha256": "a92ed4c0463960b55c63b18df74930704cd5fc015cc7fbd2bb77fbc0cc7a3e98"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_legacy_crypto_0.9.19.a",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_legacy_crypto_0.9.19.a",
+      "sha256": "198548999572f09e1f78f451bed0a2a8fac1a4c33a295964a9a5e0c0a74b22ac"
     },
     {
       "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_psa_crypto_0.9.19.a",
