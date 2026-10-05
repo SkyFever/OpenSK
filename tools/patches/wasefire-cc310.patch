@@ -1619,7 +1619,7 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..bb1724be
+index 00000000..e7b894b5
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
 @@ -0,0 +1,672 @@
@@ -1638,7 +1638,7 @@ index 00000000..bb1724be
 +#include <cc3xx_psa_aead.h>
 +#include <nrf_cc3xx_platform.h>
 +#include <nrf_cc3xx_platform_ctr_drbg.h>
-+#include <cc3xx_psa_entropy.h>
++#include <nrf_cc3xx_platform_entropy.h>
 +
 +/* The pinned Nordic driver reads these fields directly. Do not use SE layout. */
 +_Static_assert(offsetof(psa_key_attributes_t, MBEDTLS_PRIVATE(type)) == 0, "PSA type ABI");
@@ -1877,16 +1877,16 @@ index 00000000..bb1724be
 +int opensk_cc310_entropy(uint8_t *output, size_t size)
 +{
 +    while (size) {
-+        size_t chunk = size > 32 ? 32 : size, estimate = 0;
-+        int result = cc3xx_get_entropy(0, &estimate, output, chunk);
-+        if (result) {
-+            return result;
-+        }
-+        if (!estimate || estimate % 8 || estimate / 8 > chunk) {
++        size_t chunk = size > 32 ? 32 : size, written = 0;
++        /* The PSA entropy entry point calls LLF_RND_GetTrngSource directly and
++         * does not enable CC310 after init_no_rng powers it down. The platform
++         * API wraps the same TRNG with Nordic's RNG mutex and power handling. */
++        int result = nrf_cc3xx_platform_entropy_get(output, chunk, &written);
++        if (result || !written || written > chunk) {
 +            return PSA_ERROR_INSUFFICIENT_ENTROPY;
 +        }
-+        output += estimate / 8;
-+        size -= estimate / 8;
++        output += written;
++        size -= written;
 +    }
 +    return 0;
 +}
