@@ -4162,10 +4162,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..c74f3a5f
+index 00000000..d3ca4617
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,247 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4318,21 +4318,29 @@ index 00000000..c74f3a5f
 +    .into_iter()
 +    .enumerate()
 +    {
-+        progress(6, index as u32 + 1);
++        // Keep the curve and operation separate in the diagnostic LED bursts.
++        let curve_step = (index as u32 + 1) << 8;
++        progress(6, curve_step | 1);
 +        let size = curve.scalar_size();
 +        let mut key = zeroize::Zeroizing::new(vec![0; size]);
 +        key[size - 1] = 1;
 +        let mut pubkey = vec![0; curve.public_size()];
 +        ecc::public(curve, &key, &mut pubkey)?;
 +        let mut sig = vec![0; 2 * size];
++        progress(6, curve_step | 2);
 +        ecc::sign(curve, &key, &[0x42; 32], &mut sig)?;
++        progress(6, curve_step | 3);
 +        check(ecc::verify(curve, &pubkey, &[0x42; 32], &sig)?)?;
++        progress(6, curve_step | 4);
 +        check(!ecc::verify(curve, &pubkey, &[0x43; 32], &sig)?)?;
 +        let coordinate = curve.coordinate_size();
 +        let mut secret = zeroize::Zeroizing::new(vec![0; coordinate]);
++        progress(6, curve_step | 5);
 +        ecc::shared(curve, &key, &pubkey, &mut secret)?;
 +        check(secret.as_slice() == &pubkey[1 .. 1 + coordinate])?;
++        progress(6, curve_step | 6);
 +        ecc::generate(curve, &mut key)?;
++        progress(6, curve_step | 7);
 +        ecc::public(curve, &key, &mut pubkey)?;
 +    }
 +    progress(7, 0);
@@ -5687,7 +5695,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..8d7a9dc4 100644
+index 891500fd..8cbc157c 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -5740,7 +5748,7 @@ index 891500fd..8d7a9dc4 100644
      Scheduler::<Board>::run();
  }
  
-@@ -393,3 +401,51 @@ fn usbd() {
+@@ -393,3 +401,68 @@ fn usbd() {
          state.serial.tick(polled, |event| state.events.push(event.into()));
      });
  }
@@ -5767,7 +5775,16 @@ index 891500fd..8d7a9dc4 100644
 +    let result = nrf_cc310::self_test::run(|next, substep| {
 +        stage = next;
 +        step = substep;
-+        log::debug!("CC310 self-test stage {} step {}", next, substep);
++        if next == 6 {
++            log::debug!(
++                "CC310 self-test stage {} curve {} operation {}",
++                next,
++                substep >> 8,
++                substep & 0xff,
++            );
++        } else {
++            log::debug!("CC310 self-test stage {} step {}", next, substep);
++        }
 +        color(if next < 8 { next } else { 7 });
 +    });
 +    log::debug!("CC310 self-test: stage={} step={} result={:?}", stage, step, result);
@@ -5781,12 +5798,20 @@ index 891500fd..8d7a9dc4 100644
 +            cortex_m::asm::delay(8_000_000);
 +        }
 +        if result.is_err() && step != 0 {
-+            cortex_m::asm::delay(24_000_000);
-+            for _ in 0 .. step {
-+                color(4);
-+                cortex_m::asm::delay(8_000_000);
-+                color(0);
-+                cortex_m::asm::delay(8_000_000);
++            // ECC: blue counts the curve, then green counts its failed operation.
++            let (substep, operation) =
++                if stage == 6 { (step >> 8, step & 0xff) } else { (step, 0) };
++            for (count, code) in [(substep, 4), (operation, 2)] {
++                if count == 0 {
++                    continue;
++                }
++                cortex_m::asm::delay(24_000_000);
++                for _ in 0 .. count {
++                    color(code);
++                    cortex_m::asm::delay(8_000_000);
++                    color(0);
++                    cortex_m::asm::delay(8_000_000);
++                }
 +            }
 +        }
 +        cortex_m::asm::delay(32_000_000);

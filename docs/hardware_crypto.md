@@ -88,9 +88,10 @@ material; enabling batch attestation alone does not provision it.
 
 New CC310 Ed25519 and general RNG paths have passed host adapter tests and
 ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
-user's board. Ed25519 public/signature vectors, valid-signature verification
-and changed-message rejection also passed on hardware. Fresh Ed25519 keys
-and the remaining stages are still being verified.
+user's board. Ed25519 public/signature vectors, valid-signature verification,
+changed-message rejection, fresh key generation/signing/verification and
+private-key wiping also passed on hardware. The additional ECC, RSA, SRP
+and ChaCha20-Poly1305 stages are still being verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -113,8 +114,10 @@ the legacy 128-bit ChaCha key format.
 
 The `x25519` adapter feature exposes key generation, public derivation and
 ECDH in RFC7748 little-endian form. All-zero shared secrets are rejected.
-RFC7748 cross-party and low-order checks pass in the host model; hardware
-execution is pending. OpenSK credential algorithms are unchanged.
+RFC7748 cross-party and low-order checks pass in the host model. Public-key
+and shared-secret vectors and all-zero-peer rejection passed on the user's
+board; fresh key generation is not covered by that diagnostic stage.
+OpenSK credential algorithms are unchanged.
 
 The `ecc` adapter feature exposes NIST P-192/P-224/P-256/P-384,
 secp192k1/secp224k1/secp256k1 and BrainpoolP256r1 keygen, SEC1 public keys,
@@ -149,8 +152,14 @@ active stage color; RTT logs provide the stage and error. The diagnostic image
 has no FIDO event loop; restore the normal OpenSK UF2 after recording its result.
 Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
 5 long-key HMAC-SHA224. AES substeps are 1 ECB, 2 CBC, 3 CTR, 4 CMAC,
-5 CBC-MAC, 6 CCM, 7 tagless CCM*, 8 tampered CCM tag. ECC substeps follow the
-eight-curve order listed above. Ed25519 substeps are 1 public derivation/vector,
+5 CBC-MAC, 6 CCM, 7 tagless CCM*, 8 tampered CCM tag. ECC blue bursts follow
+the eight-curve order listed above; an additional green burst identifies the
+operation: 1 public derivation, 2 signing, 3 valid-signature verification,
+4 changed-digest rejection, 5 ECDH/value check, 6 fresh key generation,
+7 fresh public derivation. For example, red 6 / blue 1 / green 2 means P-192
+signing failed. Repeated green alone remains the all-stages-passed signal.
+RTT logs also identify the ECC curve and operation separately.
+Ed25519 substeps are 1 public derivation/vector,
 2 signing, 3 signature vector, 4 verification, 5 changed-message rejection,
 6 fresh seed generation, 7 fresh public derivation, 8 fresh signing,
 9 fresh verification, 10 private-key wiping.
