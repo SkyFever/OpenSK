@@ -1,0 +1,366 @@
+{
+  "nrfxlib_revision": "1143aee1e0521b5309e891b44a0a8048f83074d2",
+  "mbedtls_revision": "98603a8c91660beac00e0ee1d76198fb7c4ed29b",
+  "files": [
+    {
+      "path": "mbedtls/LICENSE",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/LICENSE",
+      "sha256": "9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/bignum.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/bignum.h",
+      "sha256": "4f382b62a81ec95be4362988684fe157629f0eb80b678f093175c5ef3a37bc44"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/build_info.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/build_info.h",
+      "sha256": "71dcc5a8eb89cfed67796581c879c76da427549504067a4e529084a92a302ad1"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/chacha20.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/chacha20.h",
+      "sha256": "519b2d029195ca218e435ffea9d36ca1f0e295312859561c8139459a44b11fab"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/chachapoly.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/chachapoly.h",
+      "sha256": "8a883b6963bc05815e1eff7f3a50ac41080f43420fb4000bc24187298a3d3628"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/check_config.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/check_config.h",
+      "sha256": "635ff72b396efc65fe42e10a8799eed6cb2c8099f6328ac5413691b6e22a9295"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/cipher.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/cipher.h",
+      "sha256": "b3750f0272fc51a956f9b42cee123119d4d292befc4194c4ce404c83d841695a"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/cmac.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/cmac.h",
+      "sha256": "181015eae9af1a0e3ed94f54d42c806ee7897f623968eeece045d7c46cc347e9"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_adjust_legacy_crypto.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_adjust_legacy_crypto.h",
+      "sha256": "8a335f0778af49effbe63726dd9cb542cb697c5ede957c2012de74c83efb1226"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_adjust_psa_from_legacy.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_adjust_psa_from_legacy.h",
+      "sha256": "4311a3e3a393677fd329006d7c88941311e7bceb94e81763a300754f721db78d"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_adjust_psa_superset_legacy.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_adjust_psa_superset_legacy.h",
+      "sha256": "4bde6d7206bf55adb126f2a5f2ac21167054663a74e183fac98b9b6efeea235d"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_adjust_ssl.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_adjust_ssl.h",
+      "sha256": "2d37a7552566e9fbd8a5a8b3e6cf6d4e21125a5e48a7e24ca30f3c683d141871"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_adjust_x509.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_adjust_x509.h",
+      "sha256": "92909d91c59340f13eb2b447cf44e0075a0ee742a18f22fb7843f6a18c5af5dc"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/config_psa.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/config_psa.h",
+      "sha256": "a1c4d086ec7207844c5bb834ac4f1d17d2b52c724c5bcaae6acec1728a84e505"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/ecdsa.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/ecdsa.h",
+      "sha256": "356145528bb9e85478ae0b604dd6d7551f2c15d245d6cfdbbfb10ef373ce62c8"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/ecjpake.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/ecjpake.h",
+      "sha256": "5eaa84603b98eee915c8d56ae0d3036e9e4a89e5a38459826f368bf92f9d41a0"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/ecp.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/ecp.h",
+      "sha256": "d0bad94653ef2676bd320880ffaf9f728ab9fdbe182d85c03ba1b0759e20e037"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/md.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/md.h",
+      "sha256": "e0114756a92e60ca7bea840693a6c4f496919a71cf318e88bac362508521060b"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/md5.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/md5.h",
+      "sha256": "21893a1ffcb6d65057178a45977774ed249387ace6d733f32434d8546dd827f7"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/platform_util.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/platform_util.h",
+      "sha256": "e598b7d7f2906ba37b00a81abd09aefaf2403865e3787ca2a4b2d2a702f94415"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/poly1305.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/poly1305.h",
+      "sha256": "393389d0f437930fae11e0cc1f325bbd82282723dffd57f080a08f82453d1e6e"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/private_access.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/private_access.h",
+      "sha256": "c897213b3e534e8d5db83629177f9c01d90461ed6fea57906836262dba87056d"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/ripemd160.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/ripemd160.h",
+      "sha256": "138b3cd792a3301fb869e5303fe0dd317743b2009b7a8f8423a51511444e23dc"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/sha1.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/sha1.h",
+      "sha256": "e644d96d46d44da66e160eb69ad637f13caef1d192e3361616833b342c6a859b"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/sha256.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/sha256.h",
+      "sha256": "a2ee050ca15b7598a8d227cac0e0ec9fd6c38615b817737a8007e90b3feab0d9"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/sha3.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/sha3.h",
+      "sha256": "8cc0b3928976871e2a4847d0f6bf02da4663a94cc0779afdec3438a0c76a5499"
+    },
+    {
+      "path": "mbedtls/include/mbedtls/sha512.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/mbedtls/sha512.h",
+      "sha256": "0f77abf1b4dfc18b865725e8a221d5d9279899c274e993005359be182b7574a2"
+    },
+    {
+      "path": "mbedtls/include/psa/build_info.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/build_info.h",
+      "sha256": "9eb0dbed47ac851acee62bd0829ce177aac6fe8515a4ce7e904ecf71829cb3d0"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto.h",
+      "sha256": "b8b131c4d75169be434aed2463f576e04cbc7b96cf3ecb8264c17cef6e7adc30"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_adjust_auto_enabled.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_adjust_auto_enabled.h",
+      "sha256": "34ea7513c9ed3467b5d185ec350f207caf31160ad1d24369b86593050449edae"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_adjust_config_dependencies.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_adjust_config_dependencies.h",
+      "sha256": "7dae42efb18e0f3d428fd0e4b4223534b66b650a56b7cf7302b4e179e81e2f56"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_adjust_config_key_pair_types.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_adjust_config_key_pair_types.h",
+      "sha256": "9cb1fba3c26ab4feada289813242545670f9703c5ebe9f5ab336f3dbdea4a1b5"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_adjust_config_synonyms.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_adjust_config_synonyms.h",
+      "sha256": "039eb983eb52a46bc273d513e0e17817bd77015004efdb3f9cd8b65eac02de77"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_builtin_composites.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_builtin_composites.h",
+      "sha256": "1e2eec329b2b4ec3b5da3f9d5761bc5645833445401a43cbff812fdb76b0ae9e"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_builtin_key_derivation.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_builtin_key_derivation.h",
+      "sha256": "8b3d5d3174dbd33e5e332f51e5f00d2734716f3e744656631bccb4d355e92bdc"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_builtin_primitives.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_builtin_primitives.h",
+      "sha256": "a3078c5637a4ef2a40ef022f89881b8ca5d3321bcab31f6f550c6154c58543c5"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_compat.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_compat.h",
+      "sha256": "0c0396d7f339f9207af3a003e98e9921516367c71d53724cb42e32f0f66142f7"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_driver_common.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_driver_common.h",
+      "sha256": "25207d12a91fc8c0670370596c3306c256ec054b4d6a6d1dd9b5bbb7d5bbe35b"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_driver_contexts_composites.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_driver_contexts_composites.h",
+      "sha256": "39fa329617a7957f1a1c44fb6357ed73e7a28a33f6c3b493911ba9f4837dfe14"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_driver_contexts_key_derivation.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_driver_contexts_key_derivation.h",
+      "sha256": "77c8ef9b7a8fac177a53472c7a39a9835da61bf864df951979cd15f71143796f"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_driver_contexts_primitives.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_driver_contexts_primitives.h",
+      "sha256": "9fc340bfac60e74aa392d3976e6959a14eab87d2f5799086674ce4e0a36b3416"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_extra.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_extra.h",
+      "sha256": "5e139ce51c35e5aa8fcd67fa28cb99c5972eb914c3535e63c4ef36bcddcc92cd"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_legacy.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_legacy.h",
+      "sha256": "51c4415dcae97a01f1f0f3901e3e7d91b623cbc30d02e8d9496542545966aae4"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_platform.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_platform.h",
+      "sha256": "26db28657e60ff6c3198b83e10ba86b25ced721cdda1d67e1c0ec679f1f7d041"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_sizes.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_sizes.h",
+      "sha256": "12fb8dc3cdeecc8ee2176b3918ecd528442f4640ec600a8961063ba4602472cf"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_struct.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_struct.h",
+      "sha256": "0f5b72d1c0f7ff64a4823998d4641c80f29091a372bce8385261bf7419c81655"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_types.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_types.h",
+      "sha256": "219ac995d8c48ee0a70a35f1bb70c92215151862c2a1c22385c7018c9ccb7aa6"
+    },
+    {
+      "path": "mbedtls/include/psa/crypto_values.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-mbedtls/98603a8c91660beac00e0ee1d76198fb7c4ed29b/include/psa/crypto_values.h",
+      "sha256": "e686e6ecc395c4ab06d4dbd9d9aff4b16d26611e41756e3daf046811f5a92355"
+    },
+    {
+      "path": "nrfxlib/LICENSE",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/LICENSE",
+      "sha256": "47d92141c69e74a0166c319a41e5005ce2b87f0498e5dbd5a0c5a34f9ef63954"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives.h",
+      "sha256": "a775148d5574af8de0983a6ae0ce9cbbf86201f03c55c66d41e063d7b7d5ca53"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives_private.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives_private.h",
+      "sha256": "34648ea001690d976faee71e76fa89287efa6bb694ec7558ba87ba92744a379d"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives_sizes.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_crypto_primitives_sizes.h",
+      "sha256": "85d3b23eab586ccb01408f814acfd79ee6ab6b6d9db4a07914daecbf44432771"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_asymmetric_signature.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_asymmetric_signature.h",
+      "sha256": "17f4561c4d00d31d677997ed933b9bc2c7fe31cde2b13ce1d1998c90a45fc3ba"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_cipher.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_cipher.h",
+      "sha256": "7986bdb0ff88924131270531873cb4a060ff3ab86222c3b32c8fac45dabe8c8a"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_hash.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_hash.h",
+      "sha256": "caf0b0685263ba9635eff1ae63773a717dbf78a0d5b043bea605de09c6bae8b0"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_key_agreement.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_key_agreement.h",
+      "sha256": "7bf38962076422aa119821d0db347a9e7cf68da5c06c441061acec105ba03389"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_key_generation.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_key_generation.h",
+      "sha256": "c14472adca281630e57154bc386388f3ba2483bdfe274c6beb592c2434a4fd55"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_mac.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/include/cc3xx_psa_mac.h",
+      "sha256": "c876e91f113cda3e0eff6601c9b586ca6d8ed6886c802badc754bfad62c46a38"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_core_0.9.19.a",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_core_0.9.19.a",
+      "sha256": "a92ed4c0463960b55c63b18df74930704cd5fc015cc7fbd2bb77fbc0cc7a3e98"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_psa_crypto_0.9.19.a",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_psa_crypto_0.9.19.a",
+      "sha256": "d1dc7f50c3ced300b541a7f07bb0fc8dd7f280b052b8ad8d5e06d6b3ef3fdd9e"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_mbedcrypto/license.txt",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_mbedcrypto/license.txt",
+      "sha256": "a37475a69489f5daf9b86a03b3e3e3242f8cdfaa11c66c169273523462627562"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform.h",
+      "sha256": "27fccdde9aa5361c74d62720e860ca25e0b16719a80fcc93cab98a434c3cfaea"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_abort.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_abort.h",
+      "sha256": "d9e472ae9f7c7b0e29b3137daadf7e411705c7535a322f847d0d94f8d2677c6a"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_defines.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_defines.h",
+      "sha256": "e2d02d1c169992caf8045c26f159641c52bf4b020b2dbec653e42641fa0f82bd"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_mutex.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/include/nrf_cc3xx_platform_mutex.h",
+      "sha256": "7a5937732c7a046f9e61adcccf917d016f517c8621f9652cb5510dbe3c0e3fb7"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_platform_0.9.19.a",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/lib/cortex-m4/soft-float/no-interrupts/libnrf_cc310_platform_0.9.19.a",
+      "sha256": "8d2c37942a9cfbc49afa463e190a6452a618a61df195fe9aacc1640c27303288"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_cc310_platform/license.txt",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_cc310_platform/license.txt",
+      "sha256": "1fa5e51f063287d20e1429352c14108bb26b26f23ca05893a67ec9a261411a5d"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_oberon/include/ocrypto_ed25519.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_oberon/include/ocrypto_ed25519.h",
+      "sha256": "4604c16c7f8cf907601a0836216258cbd29c09ced45259fcf3061e805b169024"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_oberon/include/ocrypto_sha512.h",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_oberon/include/ocrypto_sha512.h",
+      "sha256": "b59bf75ee7b57a6f82bcaeb3f5ad0e149bb8f6bea7a8e70ab68876d6995e3115"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_oberon/lib/cortex-m4/soft-float/liboberon_3.0.15.a",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_oberon/lib/cortex-m4/soft-float/liboberon_3.0.15.a",
+      "sha256": "c3b05aac4dc3bfe08bcfe1ecf553379b11d36dc43e02f6bf5a698809b4eb1aae"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_oberon/lib/license.txt",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_oberon/lib/license.txt",
+      "sha256": "7084565f3ec7aba06f4e9e09bb726810e9ad6717d4c848a962c8960e478705b6"
+    },
+    {
+      "path": "nrfxlib/crypto/nrf_oberon/license.txt",
+      "url": "https://raw.githubusercontent.com/nrfconnect/sdk-nrfxlib/1143aee1e0521b5309e891b44a0a8048f83074d2/crypto/nrf_oberon/license.txt",
+      "sha256": "7084565f3ec7aba06f4e9e09bb726810e9ad6717d4c848a962c8960e478705b6"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 __pycache__
 target/
 /build/
+/build_no_x5c/
 
 # Prevent people from commiting sensitive files.
 /crypto_data/

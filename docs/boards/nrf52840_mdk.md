@@ -12,6 +12,17 @@ UF2BOOT.
 ./flash.sh nrf52840_mdk
 ```
 
+### Nordic crypto build
+
+The build-only UF2 script can select the CC310 backend:
+
+```sh
+./flash_uf2.sh --crypto=cc310 nrf52840_mdk
+```
+
+See [the hardware crypto guide](../hardware_crypto.md) for dependencies,
+software/hardware selection, and validation.
+
 ### Buttons and LEDs
 
 The big, white button conveys user presence to the application. Some actions

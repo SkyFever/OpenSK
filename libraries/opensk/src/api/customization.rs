@@ -335,7 +335,7 @@ pub const DEFAULT_CUSTOMIZATION: CustomizationImpl = CustomizationImpl {
     max_uv_retries: 8,
     #[cfg(feature = "fingerprint")]
     preferred_platform_uv_attempts: 1,
-    use_batch_attestation: false,
+    use_batch_attestation: true,
     use_signature_counter: true,
     max_cred_blob_length: 32,
     max_credential_count_in_list: None,

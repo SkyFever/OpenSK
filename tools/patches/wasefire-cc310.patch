@@ -1,0 +1,3286 @@
+diff --git a/.gitignore b/.gitignore
+index 7a75f793..6b8132ae 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,3 +1,3 @@
+ # This list must be kept in sync with all files mentioning the .gitignore list.
+ /.root/
+-/target/
++target/
+diff --git a/crates/runner-nordic/Cargo.lock b/crates/runner-nordic/Cargo.lock
+index 274b9dda..070c6116 100644
+--- a/crates/runner-nordic/Cargo.lock
++++ b/crates/runner-nordic/Cargo.lock
+@@ -355,6 +355,32 @@ dependencies = [
+  "cipher",
+ ]
+ 
++[[package]]
++name = "curve25519-dalek"
++version = "4.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
++dependencies = [
++ "cfg-if",
++ "cpufeatures",
++ "curve25519-dalek-derive",
++ "digest",
++ "fiat-crypto",
++ "rustc_version 0.4.1",
++ "subtle",
++]
++
++[[package]]
++name = "curve25519-dalek-derive"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.117",
++]
++
+ [[package]]
+ name = "data-encoding"
+ version = "2.11.0"
+@@ -478,6 +504,28 @@ dependencies = [
+  "signature",
+ ]
+ 
++[[package]]
++name = "ed25519"
++version = "2.2.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
++dependencies = [
++ "signature",
++]
++
++[[package]]
++name = "ed25519-dalek"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
++dependencies = [
++ "curve25519-dalek",
++ "ed25519",
++ "rand_core 0.6.4",
++ "sha2",
++ "subtle",
++]
++
+ [[package]]
+ name = "elliptic-curve"
+ version = "0.13.8"
+@@ -583,6 +631,12 @@ dependencies = [
+  "subtle",
+ ]
+ 
++[[package]]
++name = "fiat-crypto"
++version = "0.2.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
++
+ [[package]]
+ name = "find-msvc-tools"
+ version = "0.1.5"
+@@ -1187,6 +1241,7 @@ dependencies = [
+  "wasefire-error",
+  "wasefire-interpreter",
+  "wasefire-logger",
++ "wasefire-nrf-cc310",
+  "wasefire-one-of",
+  "wasefire-protocol",
+  "wasefire-protocol-usb",
+@@ -1632,6 +1687,7 @@ dependencies = [
+  "derive-where",
+  "digest",
+  "ecdsa",
++ "ed25519-dalek",
+  "elliptic-curve",
+  "hmac",
+  "p256",
+@@ -1647,6 +1703,7 @@ dependencies = [
+  "wasefire-protocol",
+  "wasefire-store",
+  "wasefire-sync",
++ "zeroize",
+ ]
+ 
+ [[package]]
+@@ -1683,6 +1740,17 @@ dependencies = [
+  "defmt 1.1.0",
+ ]
+ 
++[[package]]
++name = "wasefire-nrf-cc310"
++version = "0.1.0"
++dependencies = [
++ "digest",
++ "typenum",
++ "wasefire-board-api",
++ "wasefire-error",
++ "zeroize",
++]
++
+ [[package]]
+ name = "wasefire-one-of"
+ version = "0.1.3-git"
+diff --git a/crates/runner-nordic/Cargo.toml b/crates/runner-nordic/Cargo.toml
+index e944075e..6ec308da 100644
+--- a/crates/runner-nordic/Cargo.toml
++++ b/crates/runner-nordic/Cargo.toml
+@@ -6,6 +6,7 @@ license = "Apache-2.0"
+ publish = false
+ 
+ [dependencies]
++nrf-cc310 = { package = "wasefire-nrf-cc310", path = "crates/cc310", optional = true }
+ ble-adv = { path = "crates/ble-adv", optional = true }
+ bytemuck = { version = "1.25.0", default-features = false, optional = true }
+ cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+@@ -74,7 +75,31 @@ uart = ["wasefire-scheduler/board-api-uart"]
+ usb-ctap = ["_usb", "dep:usbd-hid", "wasefire-scheduler/board-api-usb-ctap"]
+ usb-serial = ["_usb", "dep:usbd-serial", "wasefire-scheduler/board-api-usb-serial"]
+ 
++# Makerdiary diagnostics, enabled only by --crypto-trace.
++cc310-trace = ["dep:nrf-cc310", "nrf-cc310/trace"]
++
++# P-256 hardware backend (mutually exclusive with software P-256 features).
++hardware-crypto-p256 = [
++  "_crypto",
++  "dep:nrf-cc310",
++  "wasefire-scheduler/board-api-crypto-p256-ecdh",
++  "wasefire-scheduler/board-api-crypto-p256-ecdsa",
++]
++
++oberon-ed25519 = ["_crypto", "dep:nrf-cc310", "nrf-cc310/oberon-ed25519",
++  "wasefire-scheduler/board-api-crypto-ed25519"]
++
++# CC310 supports only AES-128. OpenSK requires AES-256-CBC, so select the
++# existing software CBC backend at build time alongside hardware SHA/HMAC.
++hardware-crypto-symmetric = [
++  "_crypto", "dep:nrf-cc310", "nrf-cc310/symmetric",
++  "software-crypto-aes256-cbc",
++  "wasefire-scheduler/board-api-crypto-hmac-sha256",
++  "wasefire-scheduler/board-api-crypto-sha256",
++]
++
+ # Software crypto features.
++software-crypto-ed25519 = ["_crypto", "wasefire-scheduler/software-crypto-ed25519"]
+ software-crypto-aes256-cbc = ["_crypto", "wasefire-scheduler/software-crypto-aes256-cbc"]
+ software-crypto-aes256-gcm = ["_crypto", "wasefire-scheduler/software-crypto-aes256-gcm"]
+ software-crypto-hmac-sha256 = [
+diff --git a/crates/runner-nordic/crates/cc310/.gitignore b/crates/runner-nordic/crates/cc310/.gitignore
+new file mode 100644
+index 00000000..b83d2226
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/.gitignore
+@@ -0,0 +1 @@
++/target/
+diff --git a/crates/runner-nordic/crates/cc310/Cargo.lock b/crates/runner-nordic/crates/cc310/Cargo.lock
+new file mode 100644
+index 00000000..d120b7b6
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/Cargo.lock
+@@ -0,0 +1,573 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "base16ct"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
++
++[[package]]
++name = "block-buffer"
++version = "0.10.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
++dependencies = [
++ "generic-array",
++]
++
++[[package]]
++name = "bytemuck"
++version = "1.25.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
++
++[[package]]
++name = "byteorder"
++version = "1.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
++
++[[package]]
++name = "cfg-if"
++version = "1.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
++
++[[package]]
++name = "const-oid"
++version = "0.9.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
++
++[[package]]
++name = "cpufeatures"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
++dependencies = [
++ "libc",
++]
++
++[[package]]
++name = "crypto-bigint"
++version = "0.5.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
++dependencies = [
++ "generic-array",
++ "rand_core",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "crypto-common"
++version = "0.1.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
++dependencies = [
++ "generic-array",
++ "typenum",
++]
++
++[[package]]
++name = "curve25519-dalek"
++version = "4.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
++dependencies = [
++ "cfg-if",
++ "cpufeatures",
++ "curve25519-dalek-derive",
++ "digest",
++ "fiat-crypto",
++ "rustc_version",
++ "subtle",
++]
++
++[[package]]
++name = "curve25519-dalek-derive"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "data-encoding"
++version = "2.11.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
++
++[[package]]
++name = "der"
++version = "0.7.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
++dependencies = [
++ "const-oid",
++ "zeroize",
++]
++
++[[package]]
++name = "derive-where"
++version = "1.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2e2b94854e8576378ccda7c8de8a66ed8b4e8acbd2c50ec3418ea6c8aaf4b567"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.6",
++]
++
++[[package]]
++name = "digest"
++version = "0.10.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
++dependencies = [
++ "block-buffer",
++ "const-oid",
++ "crypto-common",
++ "subtle",
++]
++
++[[package]]
++name = "ecdsa"
++version = "0.16.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ee27f32b5c5292967d2d4a9d7f1e0b0aed2c15daded5a60300e4abb9d8020bca"
++dependencies = [
++ "der",
++ "digest",
++ "elliptic-curve",
++ "rfc6979",
++ "signature",
++]
++
++[[package]]
++name = "ed25519"
++version = "2.2.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
++dependencies = [
++ "signature",
++]
++
++[[package]]
++name = "ed25519-dalek"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
++dependencies = [
++ "curve25519-dalek",
++ "ed25519",
++ "sha2",
++ "subtle",
++]
++
++[[package]]
++name = "elliptic-curve"
++version = "0.13.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
++dependencies = [
++ "base16ct",
++ "crypto-bigint",
++ "digest",
++ "ff",
++ "generic-array",
++ "group",
++ "hkdf",
++ "rand_core",
++ "sec1",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "ff"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
++dependencies = [
++ "rand_core",
++ "subtle",
++]
++
++[[package]]
++name = "fiat-crypto"
++version = "0.2.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
++
++[[package]]
++name = "generic-array"
++version = "0.14.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
++dependencies = [
++ "typenum",
++ "version_check",
++ "zeroize",
++]
++
++[[package]]
++name = "group"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
++dependencies = [
++ "ff",
++ "rand_core",
++ "subtle",
++]
++
++[[package]]
++name = "hash32"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
++dependencies = [
++ "byteorder",
++]
++
++[[package]]
++name = "heapless"
++version = "0.8.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
++dependencies = [
++ "hash32",
++ "stable_deref_trait",
++]
++
++[[package]]
++name = "hkdf"
++version = "0.12.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
++dependencies = [
++ "hmac",
++]
++
++[[package]]
++name = "hmac"
++version = "0.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
++dependencies = [
++ "digest",
++]
++
++[[package]]
++name = "libc"
++version = "0.2.190"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
++
++[[package]]
++name = "num_enum"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
++dependencies = [
++ "num_enum_derive",
++ "rustversion",
++]
++
++[[package]]
++name = "num_enum_derive"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "p256"
++version = "0.13.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
++dependencies = [
++ "ecdsa",
++ "elliptic-curve",
++ "primeorder",
++ "sha2",
++]
++
++[[package]]
++name = "portable-atomic"
++version = "1.15.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
++
++[[package]]
++name = "primeorder"
++version = "0.13.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
++dependencies = [
++ "elliptic-curve",
++]
++
++[[package]]
++name = "proc-macro2"
++version = "1.0.107"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
++dependencies = [
++ "unicode-ident",
++]
++
++[[package]]
++name = "quote"
++version = "1.0.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
++dependencies = [
++ "proc-macro2",
++]
++
++[[package]]
++name = "rand_core"
++version = "0.6.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
++
++[[package]]
++name = "rfc6979"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
++dependencies = [
++ "hmac",
++ "subtle",
++]
++
++[[package]]
++name = "rustc_version"
++version = "0.4.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
++dependencies = [
++ "semver",
++]
++
++[[package]]
++name = "rustversion"
++version = "1.0.23"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
++
++[[package]]
++name = "sec1"
++version = "0.7.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
++dependencies = [
++ "base16ct",
++ "der",
++ "generic-array",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "semver"
++version = "1.0.28"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
++
++[[package]]
++name = "sha2"
++version = "0.10.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
++dependencies = [
++ "cfg-if",
++ "cpufeatures",
++ "digest",
++]
++
++[[package]]
++name = "signature"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
++dependencies = [
++ "digest",
++ "rand_core",
++]
++
++[[package]]
++name = "spin"
++version = "0.12.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
++dependencies = [
++ "portable-atomic",
++]
++
++[[package]]
++name = "stable_deref_trait"
++version = "1.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
++
++[[package]]
++name = "subtle"
++version = "2.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
++
++[[package]]
++name = "syn"
++version = "2.0.119"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "syn"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "typenum"
++version = "1.20.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
++
++[[package]]
++name = "unicode-ident"
++version = "1.0.26"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
++
++[[package]]
++name = "usb-device"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "98816b1accafbb09085168b90f27e93d790b4bfa19d883466b5e53315b5f06a6"
++dependencies = [
++ "heapless",
++ "portable-atomic",
++]
++
++[[package]]
++name = "version_check"
++version = "0.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
++
++[[package]]
++name = "wasefire-board-api"
++version = "0.10.1-git"
++dependencies = [
++ "bytemuck",
++ "crypto-common",
++ "data-encoding",
++ "derive-where",
++ "digest",
++ "typenum",
++ "usb-device",
++ "wasefire-common",
++ "wasefire-error",
++ "wasefire-logger",
++ "wasefire-protocol",
++ "wasefire-sync",
++]
++
++[[package]]
++name = "wasefire-common"
++version = "0.1.2-git"
++dependencies = [
++ "wasefire-error",
++ "wasefire-sync",
++]
++
++[[package]]
++name = "wasefire-error"
++version = "0.1.5-git"
++dependencies = [
++ "num_enum",
++]
++
++[[package]]
++name = "wasefire-logger"
++version = "0.2.2-git"
++
++[[package]]
++name = "wasefire-nrf-cc310"
++version = "0.1.0"
++dependencies = [
++ "digest",
++ "ed25519-dalek",
++ "hmac",
++ "p256",
++ "sha2",
++ "typenum",
++ "wasefire-board-api",
++ "wasefire-error",
++ "zeroize",
++]
++
++[[package]]
++name = "wasefire-protocol"
++version = "0.4.1-git"
++dependencies = [
++ "wasefire-common",
++ "wasefire-error",
++ "wasefire-wire",
++]
++
++[[package]]
++name = "wasefire-sync"
++version = "0.1.4-git"
++dependencies = [
++ "portable-atomic",
++ "spin",
++]
++
++[[package]]
++name = "wasefire-wire"
++version = "0.1.4-git"
++dependencies = [
++ "wasefire-common",
++ "wasefire-error",
++ "wasefire-wire-derive",
++]
++
++[[package]]
++name = "wasefire-wire-derive"
++version = "0.1.4-git"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "zeroize"
++version = "1.9.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+diff --git a/crates/runner-nordic/crates/cc310/Cargo.toml b/crates/runner-nordic/crates/cc310/Cargo.toml
+new file mode 100644
+index 00000000..8e537b58
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/Cargo.toml
+@@ -0,0 +1,32 @@
++[package]
++name = "wasefire-nrf-cc310"
++version = "0.1.0"
++edition = "2024"
++license = "Apache-2.0"
++publish = false
++
++[features]
++# Optional board LED tracing; absent from normal firmware.
++trace = []
++oberon-ed25519 = ["wasefire-board-api/api-crypto-ed25519"]
++symmetric = [
++  "dep:digest", "dep:typenum",
++  "wasefire-board-api/api-crypto-hmac-sha256",
++  "wasefire-board-api/api-crypto-sha256",
++]
++
++[dependencies]
++digest = { version = "0.10.7", default-features = false, optional = true, features = ["mac"] }
++typenum = { version = "1.20.1", default-features = false, optional = true }
++wasefire-error = { path = "../../../error" }
++wasefire-board-api = { path = "../../../board", features = ["api-crypto-p256-ecdh", "api-crypto-p256-ecdsa"] }
++zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
++
++[dev-dependencies]
++ed25519-dalek = { version = "2.2.0", default-features = false }
++sha2 = "0.10.9"
++hmac = "0.12.1"
++p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "ecdh"] }
++
++[lints]
++rust.unsafe_op_in_unsafe_fn = "deny"
+diff --git a/crates/runner-nordic/crates/cc310/build.rs b/crates/runner-nordic/crates/cc310/build.rs
+new file mode 100644
+index 00000000..c3d5d6db
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/build.rs
+@@ -0,0 +1,83 @@
++// SPDX-License-Identifier: Apache-2.0
++use std::path::PathBuf;
++use std::process::Command;
++
++fn run(command: &mut Command) {
++    let status = command.status().expect("could not start CC310 C toolchain");
++    assert!(status.success(), "CC310 C toolchain failed");
++}
++
++fn main() {
++    // Host tests exercise the Rust adapter with a software driver model.
++    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("arm") {
++        return;
++    }
++    assert_eq!(
++        std::env::var("TARGET").unwrap(),
++        "thumbv7em-none-eabi",
++        "CC310 archive requires the Cortex-M4 soft-float ABI"
++    );
++    let cache = std::env::var_os("OPENSK_CC310_DIR")
++        .map(PathBuf::from)
++        .unwrap_or_else(|| PathBuf::from("../../../../.root/cc310"));
++    let cache = cache
++        .canonicalize()
++        .expect("CC310 dependencies are missing: run python3 tools/setup_cc310.py from OpenSK");
++    println!("cargo::rerun-if-changed={}", cache.display());
++    let nordic = cache.join("nrfxlib/crypto");
++    let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
++    let cc = std::env::var_os("CC310_CC").unwrap_or_else(|| "clang-18".into());
++    run(Command::new(cc)
++        .args([
++            "--target=thumbv7em-none-eabi",
++            "-mcpu=cortex-m4",
++            "-mthumb",
++            "-mfloat-abi=soft",
++            "-std=c11",
++            "-Os",
++            "-ffreestanding",
++            "-fno-builtin",
++            "-ffunction-sections",
++            "-fdata-sections",
++            "-Wall",
++            "-Wextra",
++            "-Werror",
++            "-DMBEDTLS_CONFIG_FILE=\"cc310_config.h\"",
++        ])
++        .arg("-I")
++        .arg("src")
++        .arg("-I")
++        .arg(cache.join("mbedtls/include"))
++        .arg("-I")
++        .arg(nordic.join("nrf_cc310_mbedcrypto/include"))
++        .arg("-I")
++        .arg(nordic.join("nrf_cc310_platform/include"))
++        .args(["-c", "src/cc310.c", "-o"])
++        .arg(out.join("cc310.o")));
++    let ar = std::env::var_os("CC310_AR").unwrap_or_else(|| "llvm-ar".into());
++    run(Command::new(ar).arg("crs").arg(out.join("libopensk_cc310.a")).arg(out.join("cc310.o")));
++    println!("cargo::rustc-link-search=native={}", out.display());
++    println!("cargo::rustc-link-lib=static=opensk_cc310");
++    for (directory, name) in [
++        ("nrf_cc310_mbedcrypto", "nrf_cc310_psa_crypto_0.9.19"),
++        ("nrf_cc310_mbedcrypto", "nrf_cc310_core_0.9.19"),
++        ("nrf_cc310_platform", "nrf_cc310_platform_0.9.19"),
++    ] {
++        let path = nordic.join(directory).join("lib/cortex-m4/soft-float/no-interrupts");
++        assert!(path.join(format!("lib{name}.a")).is_file(), "missing CC310 archive");
++        println!("cargo::rustc-link-search=native={}", path.display());
++        println!("cargo::rustc-link-lib=static={name}");
++        println!("cargo::rerun-if-changed={}", path.display());
++    }
++    if std::env::var_os("CARGO_FEATURE_OBERON_ED25519").is_some() {
++        let path = nordic.join("nrf_oberon/lib/cortex-m4/soft-float");
++        assert!(path.join("liboberon_3.0.15.a").is_file(), "missing pinned Oberon archive");
++        println!("cargo::rustc-link-search=native={}", path.display());
++        println!("cargo::rustc-link-lib=static=oberon_3.0.15");
++    }
++    for name in ["OPENSK_CC310_DIR", "CC310_CC", "CC310_AR"] {
++        println!("cargo::rerun-if-env-changed={name}");
++    }
++    println!("cargo::rerun-if-changed=src/cc310.c");
++    println!("cargo::rerun-if-changed=src/cc310_config.h");
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
+new file mode 100644
+index 00000000..c0e46d7e
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/cc310.c
+@@ -0,0 +1,181 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include <stdint.h>
++#include <stddef.h>
++#include <stdbool.h>
++#include <psa/crypto.h>
++#include <cc3xx_psa_asymmetric_signature.h>
++#include <cc3xx_psa_key_agreement.h>
++#include <cc3xx_psa_key_generation.h>
++#include <cc3xx_psa_hash.h>
++#include <cc3xx_psa_mac.h>
++#include <nrf_cc3xx_platform.h>
++
++/* The pinned Nordic driver reads these fields directly. Do not use SE layout. */
++_Static_assert(offsetof(psa_key_attributes_t, MBEDTLS_PRIVATE(type)) == 0, "PSA type ABI");
++_Static_assert(offsetof(psa_key_attributes_t, MBEDTLS_PRIVATE(bits)) == 2, "PSA bits ABI");
++_Static_assert(offsetof(psa_hash_operation_t, MBEDTLS_PRIVATE(ctx)) == 4, "PSA hash ABI");
++_Static_assert(sizeof(psa_hash_operation_t) == 244, "PSA hash context ABI");
++
++static psa_key_attributes_t attributes(bool public_key)
++{
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, public_key ? PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1)
++                                      : PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
++    psa_set_key_bits(&attr, 256);
++    return attr;
++}
++
++/* Wasefire serializes crypto calls in Rust. Its IRQ handlers never use CC310.
++ * Nordic's no-interrupts archive polls CC310 while USB IRQs remain enabled. */
++void nrf_cc3xx_platform_mutex_init(void) {}
++
++int opensk_cc310_init(void)
++{
++    if (nrf_cc3xx_platform_is_initialized()) {
++        return 0;
++    }
++    nrf_cc3xx_platform_mutex_init();
++    /* The runner supplies PSA random requests. Nordic ECC also uses its own DRBG. */
++    return nrf_cc3xx_platform_init_no_rng();
++}
++
++int opensk_cc310_generate(uint8_t private_key[32])
++{
++    psa_key_attributes_t attr = attributes(false);
++    size_t size = 0;
++    int status = cc3xx_generate_key(&attr, private_key, 32, &size);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++
++int opensk_cc310_public(const uint8_t private_key[32], uint8_t public_key[64])
++{
++    psa_key_attributes_t attr = attributes(false);
++    uint8_t encoded[65];
++    size_t size = 0;
++    int status = cc3xx_export_public_key(&attr, private_key, 32, encoded, sizeof(encoded), &size);
++    if (status) {
++        return status;
++    }
++    if (size != 65 || encoded[0] != 4) {
++        return PSA_ERROR_CORRUPTION_DETECTED;
++    }
++    for (size_t i = 0; i < 64; i++) {
++        public_key[i] = encoded[i + 1];
++    }
++    return 0;
++}
++
++int opensk_cc310_validate_public(const uint8_t public_key[64])
++{
++    psa_key_attributes_t attr = attributes(true);
++    uint8_t encoded[65] = {4}, imported[65];
++    size_t size = 0, bits = 0;
++    for (size_t i = 0; i < 64; i++) {
++        encoded[i + 1] = public_key[i];
++    }
++    int status = cc3xx_import_key(&attr, encoded, sizeof(encoded), imported, sizeof(imported), &size, &bits);
++    return status ? status : (size == 65 && bits == 256 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++
++int opensk_cc310_sign(const uint8_t private_key[32], const uint8_t digest[32], uint8_t signature[64])
++{
++    psa_key_attributes_t attr = attributes(false);
++    size_t size = 0;
++    int status = cc3xx_sign_hash(&attr, private_key, 32, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
++                                digest, 32, signature, 64, &size);
++    return status ? status : (size == 64 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++
++int opensk_cc310_verify(const uint8_t public_key[64], const uint8_t digest[32], const uint8_t signature[64])
++{
++    psa_key_attributes_t attr = attributes(true);
++    uint8_t encoded[65] = {4};
++    for (size_t i = 0; i < 64; i++) {
++        encoded[i + 1] = public_key[i];
++    }
++    return cc3xx_verify_hash(&attr, encoded, sizeof(encoded), PSA_ALG_ECDSA(PSA_ALG_SHA_256),
++                            digest, 32, signature, 64);
++}
++
++int opensk_cc310_shared(const uint8_t private_key[32], const uint8_t public_key[64], uint8_t shared[32])
++{
++    psa_key_attributes_t attr = attributes(false);
++    uint8_t encoded[65] = {4};
++    size_t size = 0;
++    for (size_t i = 0; i < 64; i++) {
++        encoded[i + 1] = public_key[i];
++    }
++    int status = cc3xx_key_agreement(&attr, private_key, 32, encoded, sizeof(encoded),
++                                    shared, 32, &size, PSA_ALG_ECDH);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++
++/* The Nordic archive calls these PSA wrapper hooks from its internal hash
++ * paths. Use the pinned PSA operation layout and its CC3XX context directly. */
++int psa_driver_wrapper_hash_setup(psa_hash_operation_t *operation, psa_algorithm_t alg)
++{
++    int status = cc3xx_hash_setup(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, alg);
++    operation->MBEDTLS_PRIVATE(id) = status ? 0 : 1;
++    return status;
++}
++
++int psa_driver_wrapper_hash_update(psa_hash_operation_t *operation, const uint8_t *input, size_t size)
++{
++    return cc3xx_hash_update(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, input, size);
++}
++
++int psa_driver_wrapper_hash_finish(psa_hash_operation_t *operation, uint8_t *hash, size_t size, size_t *length)
++{
++    int status = cc3xx_hash_finish(&operation->MBEDTLS_PRIVATE(ctx).cc3xx_driver_ctx, hash, size, length);
++    operation->MBEDTLS_PRIVATE(id) = 0;
++    return status;
++}
++
++int psa_driver_wrapper_hash_compute(psa_algorithm_t alg, const uint8_t *input, size_t input_length,
++                                    uint8_t *hash, size_t hash_size, size_t *hash_length)
++{
++    return cc3xx_hash_compute(alg, input, input_length, hash, hash_size, hash_length);
++}
++
++_Static_assert(sizeof(cc3xx_hash_operation_t) == 60 * sizeof(uint32_t), "CC310 hash ABI");
++_Static_assert(sizeof(cc3xx_mac_operation_t) == 79 * sizeof(uint32_t), "CC310 MAC ABI");
++
++int opensk_cc310_hash_setup(cc3xx_hash_operation_t *operation)
++{
++    return cc3xx_hash_setup(operation, PSA_ALG_SHA_256);
++}
++int opensk_cc310_hash_update(cc3xx_hash_operation_t *operation, const uint8_t *data, size_t size)
++{
++    return cc3xx_hash_update(operation, data, size);
++}
++int opensk_cc310_hash_finish(cc3xx_hash_operation_t *operation, uint8_t output[32])
++{
++    size_t size = 0;
++    int status = cc3xx_hash_finish(operation, output, 32, &size);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_hash_abort(cc3xx_hash_operation_t *operation)
++{
++    return cc3xx_hash_abort(operation);
++}
++int opensk_cc310_hmac_setup(cc3xx_mac_operation_t *operation, const uint8_t key[64])
++{
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, PSA_KEY_TYPE_HMAC);
++    psa_set_key_bits(&attr, 512);
++    return cc3xx_mac_sign_setup(operation, &attr, key, 64, PSA_ALG_HMAC(PSA_ALG_SHA_256));
++}
++int opensk_cc310_hmac_update(cc3xx_mac_operation_t *operation, const uint8_t *data, size_t size)
++{
++    return cc3xx_mac_update(operation, data, size);
++}
++int opensk_cc310_hmac_finish(cc3xx_mac_operation_t *operation, uint8_t output[32])
++{
++    size_t size = 0;
++    int status = cc3xx_mac_sign_finish(operation, output, 32, &size);
++    return status ? status : (size == 32 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
++}
++int opensk_cc310_hmac_abort(cc3xx_mac_operation_t *operation)
++{
++    return cc3xx_mac_abort(operation);
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/cc310_config.h b/crates/runner-nordic/crates/cc310/src/cc310_config.h
+new file mode 100644
+index 00000000..2df14eef
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/cc310_config.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#ifndef OPENSK_CC310_CONFIG_H
++#define OPENSK_CC310_CONFIG_H
++/* Headers only: all cryptographic implementations come from Nordic archives. */
++#define MBEDTLS_PSA_CRYPTO_C
++#define MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG
++#define PSA_CRYPTO_DRIVER_CC3XX
++#endif
+diff --git a/crates/runner-nordic/crates/cc310/src/ed25519.rs b/crates/runner-nordic/crates/cc310/src/ed25519.rs
+new file mode 100644
+index 00000000..406a4cc4
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/ed25519.rs
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Optional Oberon Ed25519 software implementation from the pinned Nordic archive.
++use core::alloc::Layout;
++
++use wasefire_board_api::crypto::ed25519::Api;
++use wasefire_board_api::{Error, Supported};
++use zeroize::{Zeroize, Zeroizing};
++
++use crate::{length, status};
++
++pub enum Ed25519 {}
++impl Supported for Ed25519 {}
++impl Api for Ed25519 {
++    const PRIVATE: Layout = Layout::new::<[u8; 32]>();
++    const PUBLIC: Layout = Layout::new::<[u8; 32]>();
++    const WRAPPED: usize = 32;
++    fn generate(output: &mut [u8]) -> Result<(), Error> {
++        length(output, 32)?;
++        let mut seed = Zeroizing::new([0; 32]);
++        // SAFETY: The runner's existing RNG receives an exactly 32-byte writable buffer.
++        status(unsafe { ffi::psa_generate_random(seed.as_mut_ptr(), 32) })?;
++        output.copy_from_slice(seed.as_ref());
++        Ok(())
++    }
++    fn public(private: &[u8], public: &mut [u8]) -> Result<(), Error> {
++        length(private, 32)?;
++        length(public, 32)?;
++        // SAFETY: Both buffers have the exact lengths specified by ocrypto_ed25519.h.
++        unsafe { ffi::ocrypto_ed25519_public_key(public.as_mut_ptr(), private.as_ptr()) };
++        Ok(())
++    }
++    fn sign(
++        private: &[u8], message: &[u8], r: &mut [u8; 32], s: &mut [u8; 32],
++    ) -> Result<(), Error> {
++        length(private, 32)?;
++        let mut public = [0; 32];
++        Self::public(private, &mut public)?;
++        let mut signature = Zeroizing::new([0; 64]);
++        // SAFETY: Every buffer has the length specified by the published API.
++        unsafe {
++            ffi::ocrypto_ed25519_sign(
++                signature.as_mut_ptr(),
++                message.as_ptr(),
++                message.len(),
++                private.as_ptr(),
++                public.as_ptr(),
++            )
++        };
++        r.copy_from_slice(&signature[.. 32]);
++        s.copy_from_slice(&signature[32 ..]);
++        Ok(())
++    }
++    fn verify(public: &[u8], message: &[u8], r: &[u8; 32], s: &[u8; 32]) -> Result<bool, Error> {
++        length(public, 32)?;
++        let mut signature = [0; 64];
++        signature[.. 32].copy_from_slice(r);
++        signature[32 ..].copy_from_slice(s);
++        // SAFETY: Every buffer has the length specified by the published API.
++        match unsafe {
++            ffi::ocrypto_ed25519_verify(
++                signature.as_ptr(),
++                message.as_ptr(),
++                message.len(),
++                public.as_ptr(),
++            )
++        } {
++            0 => Ok(true),
++            -1 => Ok(false),
++            _ => Err(Error::world(0)),
++        }
++    }
++    fn drop_private(private: &mut [u8]) -> Result<(), Error> {
++        length(private, 32)?;
++        private.zeroize();
++        Ok(())
++    }
++    fn export_private(private: &[u8], wrapped: &mut [u8]) -> Result<(), Error> {
++        length(private, 32)?;
++        length(wrapped, 32)?;
++        wrapped.copy_from_slice(private);
++        Ok(())
++    }
++    fn import_private(wrapped: &[u8], private: &mut [u8]) -> Result<(), Error> {
++        length(wrapped, 32)?;
++        length(private, 32)?;
++        private.copy_from_slice(wrapped);
++        Ok(())
++    }
++    fn export_public(public: &[u8], a: &mut [u8; 32]) -> Result<(), Error> {
++        length(public, 32)?;
++        a.copy_from_slice(public);
++        Ok(())
++    }
++    fn import_public(a: &[u8; 32], public: &mut [u8]) -> Result<(), Error> {
++        length(public, 32)?;
++        public.copy_from_slice(a);
++        Ok(())
++    }
++}
++#[cfg(not(test))]
++mod ffi {
++    unsafe extern "C" {
++        pub fn psa_generate_random(output: *mut u8, size: usize) -> i32;
++        pub fn ocrypto_ed25519_public_key(public: *mut u8, private: *const u8);
++        pub fn ocrypto_ed25519_sign(
++            signature: *mut u8, message: *const u8, size: usize, private: *const u8,
++            public: *const u8,
++        );
++        pub fn ocrypto_ed25519_verify(
++            signature: *const u8, message: *const u8, size: usize, public: *const u8,
++        ) -> i32;
++    }
++}
++#[cfg(test)]
++mod ffi {
++    use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
++    pub unsafe fn psa_generate_random(output: *mut u8, size: usize) -> i32 {
++        unsafe { core::ptr::write_bytes(output, 0x42, size) };
++        0
++    }
++    pub unsafe fn ocrypto_ed25519_public_key(public: *mut u8, private: *const u8) {
++        let key = SigningKey::from_bytes(unsafe { &*private.cast() });
++        unsafe {
++            core::ptr::copy_nonoverlapping(key.verifying_key().as_bytes().as_ptr(), public, 32)
++        };
++    }
++    pub unsafe fn ocrypto_ed25519_sign(
++        signature: *mut u8, message: *const u8, size: usize, private: *const u8, _public: *const u8,
++    ) {
++        let key = SigningKey::from_bytes(unsafe { &*private.cast() });
++        let value = key.sign(unsafe { core::slice::from_raw_parts(message, size) });
++        unsafe { core::ptr::copy_nonoverlapping(value.to_bytes().as_ptr(), signature, 64) };
++    }
++    pub unsafe fn ocrypto_ed25519_verify(
++        signature: *const u8, message: *const u8, size: usize, public: *const u8,
++    ) -> i32 {
++        let Ok(key) = VerifyingKey::from_bytes(unsafe { &*public.cast() }) else { return -1 };
++        let value = Signature::from_bytes(unsafe { &*signature.cast() });
++        if key.verify(unsafe { core::slice::from_raw_parts(message, size) }, &value).is_ok() {
++            0
++        } else {
++            -1
++        }
++    }
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/lib.rs b/crates/runner-nordic/crates/cc310/src/lib.rs
+new file mode 100644
+index 00000000..63d1dafc
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/lib.rs
+@@ -0,0 +1,333 @@
++// SPDX-License-Identifier: Apache-2.0
++//! nRF52840 CC310 P-256 adapter. Keys retain Wasefire's big-endian wire format.
++#![no_std]
++
++extern crate alloc;
++
++use core::alloc::Layout;
++use core::sync::atomic::{AtomicBool, Ordering};
++
++use wasefire_board_api::crypto::{ecdh, ecdsa};
++use wasefire_board_api::{Error, Supported};
++use wasefire_error::Code;
++
++#[cfg(feature = "symmetric")]
++mod symmetric;
++#[cfg(feature = "symmetric")]
++pub use symmetric::{HmacSha256, Sha256};
++use zeroize::{Zeroize, Zeroizing};
++
++#[cfg(feature = "oberon-ed25519")]
++mod ed25519;
++#[cfg(feature = "oberon-ed25519")]
++pub use ed25519::Ed25519;
++
++pub enum Impl {}
++impl Supported for Impl {}
++
++const PRIVATE: Layout = Layout::new::<[u8; 32]>();
++const PUBLIC: Layout = Layout::new::<[u8; 64]>();
++const INVALID_SIGNATURE: i32 = -149;
++static BUSY: AtomicBool = AtomicBool::new(false);
++
++// Order of the NIST P-256 base point (SEC 2), in big-endian.
++const ORDER: [u8; 32] = [
++    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
++    0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
++];
++
++struct Guard;
++impl Drop for Guard {
++    fn drop(&mut self) {
++        BUSY.store(false, Ordering::Release);
++    }
++}
++
++fn driver(f: impl FnOnce() -> i32) -> Result<(), Error> {
++    if BUSY.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
++        return Err(Error::world(0));
++    }
++    let _guard = Guard;
++    // SAFETY: All accesses to the global driver are serialized by BUSY.
++    status(unsafe { ffi::opensk_cc310_init() })?;
++    status(f())
++}
++
++// Diagnostic colors encode the operation active inside the hardware driver.
++// A returned error latches its color in the runner, including during cleanup.
++fn traced_driver(operation: u32, f: impl FnOnce() -> i32) -> Result<(), Error> {
++    #[cfg(all(feature = "trace", not(test)))]
++    unsafe extern "C" {
++        fn opensk_cc310_trace(operation: u32);
++    }
++    #[cfg(all(feature = "trace", not(test)))]
++    // SAFETY: The Nordic runner supplies a synchronous, non-crypto LED hook.
++    unsafe {
++        opensk_cc310_trace(operation)
++    };
++    let result = driver(f);
++    #[cfg(all(feature = "trace", not(test)))]
++    // SAFETY: Same runner hook; bit 31 distinguishes a returned driver error.
++    unsafe {
++        opensk_cc310_trace(if result.is_ok() { 0 } else { operation | (1 << 31) })
++    };
++    #[cfg(any(not(feature = "trace"), test))]
++    let _ = operation;
++    result
++}
++
++fn status(code: i32) -> Result<(), Error> {
++    match code {
++        0 => Ok(()),
++        -135 | -138 => Err(Error::user(0)), // PSA invalid argument or buffer too small.
++        _ => Err(Error::world(0)),          /* Never fall back to software after a hardware
++                                              * failure. */
++    }
++}
++
++fn length(bytes: &[u8], expected: usize) -> Result<(), Error> {
++    if bytes.len() == expected { Ok(()) } else { Err(Error::user(Code::InvalidLength)) }
++}
++
++fn private(bytes: &[u8]) -> Result<(), Error> {
++    length(bytes, 32)?;
++    if bytes.iter().any(|&x| x != 0) && bytes < ORDER.as_slice() {
++        Ok(())
++    } else {
++        Err(Error::user(0))
++    }
++}
++
++fn generate(output: &mut [u8]) -> Result<(), Error> {
++    length(output, 32)?;
++    let mut value = Zeroizing::new([0; 32]);
++    // SAFETY: The driver gets a writable, exactly 32-byte buffer for this call only.
++    traced_driver(3, || unsafe { ffi::opensk_cc310_generate(value.as_mut_ptr()) })?;
++    private(value.as_ref())?;
++    output.copy_from_slice(value.as_ref());
++    Ok(())
++}
++
++fn derive_public(key: &[u8], output: &mut [u8]) -> Result<(), Error> {
++    private(key)?;
++    length(output, 64)?;
++    let mut value = [0; 64];
++    // SAFETY: key and value remain alive and have the sizes required by the C shim.
++    traced_driver(4, || unsafe { ffi::opensk_cc310_public(key.as_ptr(), value.as_mut_ptr()) })?;
++    output.copy_from_slice(&value);
++    Ok(())
++}
++
++fn import_public(x: &[u8; 32], y: &[u8; 32], output: &mut [u8]) -> Result<(), Error> {
++    length(output, 64)?;
++    let mut value = [0; 64];
++    value[.. 32].copy_from_slice(x);
++    value[32 ..].copy_from_slice(y);
++    // SAFETY: value is an exactly 64-byte SEC-1 point without the uncompressed prefix.
++    traced_driver(4, || unsafe { ffi::opensk_cc310_validate_public(value.as_ptr()) })?;
++    output.copy_from_slice(&value);
++    Ok(())
++}
++
++fn export_public(key: &[u8], x: &mut [u8; 32], y: &mut [u8; 32]) -> Result<(), Error> {
++    length(key, 64)?;
++    x.copy_from_slice(&key[.. 32]);
++    y.copy_from_slice(&key[32 ..]);
++    Ok(())
++}
++
++fn drop_secret(secret: &mut [u8]) -> Result<(), Error> {
++    length(secret, 32)?;
++    secret.zeroize();
++    Ok(())
++}
++
++impl ecdsa::Api<32> for Impl {
++    const PRIVATE: Layout = PRIVATE;
++    const PUBLIC: Layout = PUBLIC;
++    const WRAPPED: usize = 32;
++
++    fn generate(private: &mut [u8]) -> Result<(), Error> {
++        generate(private)
++    }
++    fn public(private: &[u8], public: &mut [u8]) -> Result<(), Error> {
++        derive_public(private, public)
++    }
++
++    fn sign(
++        key: &[u8], digest: &[u8; 32], r: &mut [u8; 32], s: &mut [u8; 32],
++    ) -> Result<(), Error> {
++        private(key)?;
++        let mut value = Zeroizing::new([0; 64]);
++        // SAFETY: All pointers refer to appropriately sized buffers alive throughout the call.
++        traced_driver(5, || unsafe {
++            ffi::opensk_cc310_sign(key.as_ptr(), digest.as_ptr(), value.as_mut_ptr())
++        })?;
++        r.copy_from_slice(&value[.. 32]);
++        s.copy_from_slice(&value[32 ..]);
++        Ok(())
++    }
++
++    fn verify(key: &[u8], digest: &[u8; 32], r: &[u8; 32], s: &[u8; 32]) -> Result<bool, Error> {
++        length(key, 64)?;
++        private(r)?;
++        private(s)?;
++        let mut signature = [0; 64];
++        signature[.. 32].copy_from_slice(r);
++        signature[32 ..].copy_from_slice(s);
++        let mut valid = true;
++        traced_driver(5, || {
++            // SAFETY: All pointers refer to appropriately sized buffers alive throughout the call.
++            let result = unsafe {
++                ffi::opensk_cc310_verify(key.as_ptr(), digest.as_ptr(), signature.as_ptr())
++            };
++            if result == INVALID_SIGNATURE {
++                valid = false;
++                0
++            } else {
++                result
++            }
++        })?;
++        Ok(valid)
++    }
++
++    fn drop_private(private: &mut [u8]) -> Result<(), Error> {
++        drop_secret(private)
++    }
++
++    fn export_private(key: &[u8], wrapped: &mut [u8]) -> Result<(), Error> {
++        private(key)?;
++        length(wrapped, 32)?;
++        wrapped.copy_from_slice(key);
++        Ok(())
++    }
++
++    fn import_private(wrapped: &[u8], output: &mut [u8]) -> Result<(), Error> {
++        private(wrapped)?;
++        length(output, 32)?;
++        output.copy_from_slice(wrapped);
++        Ok(())
++    }
++
++    fn export_public(key: &[u8], x: &mut [u8; 32], y: &mut [u8; 32]) -> Result<(), Error> {
++        export_public(key, x, y)
++    }
++
++    fn import_public(x: &[u8; 32], y: &[u8; 32], output: &mut [u8]) -> Result<(), Error> {
++        import_public(x, y, output)
++    }
++}
++
++impl ecdh::Api<32> for Impl {
++    const PRIVATE: Layout = PRIVATE;
++    const PUBLIC: Layout = PUBLIC;
++    const SHARED: Layout = PRIVATE;
++
++    fn generate(private: &mut [u8]) -> Result<(), Error> {
++        generate(private)
++    }
++    fn public(private: &[u8], public: &mut [u8]) -> Result<(), Error> {
++        derive_public(private, public)
++    }
++
++    fn shared(key: &[u8], public: &[u8], output: &mut [u8]) -> Result<(), Error> {
++        private(key)?;
++        length(public, 64)?;
++        length(output, 32)?;
++        let mut value = Zeroizing::new([0; 32]);
++        // SAFETY: All pointers refer to appropriately sized buffers alive throughout the call.
++        traced_driver(6, || unsafe {
++            ffi::opensk_cc310_shared(key.as_ptr(), public.as_ptr(), value.as_mut_ptr())
++        })?;
++        output.copy_from_slice(value.as_ref());
++        Ok(())
++    }
++
++    fn drop_private(private: &mut [u8]) -> Result<(), Error> {
++        drop_secret(private)
++    }
++    fn drop_shared(shared: &mut [u8]) -> Result<(), Error> {
++        drop_secret(shared)
++    }
++
++    fn export_public(key: &[u8], x: &mut [u8; 32], y: &mut [u8; 32]) -> Result<(), Error> {
++        export_public(key, x, y)
++    }
++
++    fn import_public(x: &[u8; 32], y: &[u8; 32], output: &mut [u8]) -> Result<(), Error> {
++        import_public(x, y, output)
++    }
++
++    fn export_shared(shared: &[u8], x: &mut [u8; 32]) -> Result<(), Error> {
++        length(shared, 32)?;
++        x.copy_from_slice(shared);
++        Ok(())
++    }
++}
++
++#[cfg(not(test))]
++mod ffi {
++    unsafe extern "C" {
++        pub fn opensk_cc310_init() -> i32;
++        pub fn opensk_cc310_generate(private: *mut u8) -> i32;
++        pub fn opensk_cc310_public(private: *const u8, public: *mut u8) -> i32;
++        pub fn opensk_cc310_validate_public(public: *const u8) -> i32;
++        pub fn opensk_cc310_sign(private: *const u8, digest: *const u8, signature: *mut u8) -> i32;
++        pub fn opensk_cc310_verify(
++            public: *const u8, digest: *const u8, signature: *const u8,
++        ) -> i32;
++        pub fn opensk_cc310_shared(private: *const u8, public: *const u8, shared: *mut u8) -> i32;
++    }
++}
++
++// Nordic's archives use Mbed TLS allocation symbols. Keep an allocation header
++// so free can recover the Rust Layout; wipe the complete allocation on release.
++/// Allocates zero-filled memory for the Nordic archive.
++///
++/// # Safety
++/// The returned allocation must be released exactly once with mbedtls_free.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn mbedtls_calloc(count: usize, size: usize) -> *mut core::ffi::c_void {
++    let Some(bytes) = count.checked_mul(size).and_then(|n| n.checked_add(8)) else {
++        return core::ptr::null_mut();
++    };
++    let Ok(layout) = Layout::from_size_align(bytes, 8) else {
++        return core::ptr::null_mut();
++    };
++    // SAFETY: layout has nonzero size and valid alignment.
++    let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
++    if ptr.is_null() {
++        return ptr.cast();
++    }
++    // SAFETY: The 8-byte allocation header fits and is aligned for usize on Cortex-M4 and hosts.
++    unsafe {
++        ptr.cast::<usize>().write(bytes);
++        ptr.add(8).cast()
++    }
++}
++
++/// Wipes and releases a Nordic archive allocation.
++///
++/// # Safety
++/// ptr must be null or a live pointer returned by mbedtls_calloc, used once.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn mbedtls_free(ptr: *mut core::ffi::c_void) {
++    if ptr.is_null() {
++        return;
++    }
++    // SAFETY: The caller must pass exactly a pointer returned by mbedtls_calloc, once.
++    let base = unsafe { ptr.cast::<u8>().sub(8) };
++    let bytes = unsafe { base.cast::<usize>().read() };
++    let layout = Layout::from_size_align(bytes, 8).unwrap();
++    // SAFETY: This range is the entire live allocation; its header is no longer needed.
++    unsafe {
++        core::slice::from_raw_parts_mut(base, bytes).zeroize();
++        alloc::alloc::dealloc(base, layout);
++    }
++}
++
++#[cfg(test)]
++#[path = "model.rs"]
++mod ffi;
++#[cfg(test)]
++mod tests;
+diff --git a/crates/runner-nordic/crates/cc310/src/model.rs b/crates/runner-nordic/crates/cc310/src/model.rs
+new file mode 100644
+index 00000000..2484f6da
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/model.rs
+@@ -0,0 +1,74 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Host-only software model of the C shim. This does not exercise CC310 hardware.
++use core::sync::atomic::{AtomicI32, Ordering};
++
++use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
++use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
++use p256::{PublicKey, SecretKey};
++
++pub static INIT_ERROR: AtomicI32 = AtomicI32::new(0);
++
++pub unsafe fn opensk_cc310_init() -> i32 {
++    INIT_ERROR.swap(0, Ordering::Relaxed)
++}
++
++unsafe fn input<'a, const N: usize>(ptr: *const u8) -> &'a [u8; N] {
++    // SAFETY: Tests use the same buffer contracts as the C shim.
++    unsafe { &*ptr.cast() }
++}
++
++pub unsafe fn opensk_cc310_generate(private: *mut u8) -> i32 {
++    let mut value = [0; 32];
++    value[31] = 1; // Only a deterministic test fixture, never compiled into firmware.
++    unsafe { core::ptr::copy_nonoverlapping(value.as_ptr(), private, 32) };
++    0
++}
++
++pub unsafe fn opensk_cc310_public(private: *const u8, public: *mut u8) -> i32 {
++    let Ok(key) = SigningKey::from_slice(unsafe { input::<32>(private) }) else { return -135 };
++    let encoded = key.verifying_key().to_encoded_point(false);
++    unsafe { core::ptr::copy_nonoverlapping(encoded.as_bytes()[1 ..].as_ptr(), public, 64) };
++    0
++}
++
++fn encoded(public: &[u8; 64]) -> [u8; 65] {
++    let mut value = [0; 65];
++    value[0] = 4;
++    value[1 ..].copy_from_slice(public);
++    value
++}
++
++pub unsafe fn opensk_cc310_validate_public(public: *const u8) -> i32 {
++    if PublicKey::from_sec1_bytes(&encoded(unsafe { input::<64>(public) })).is_ok() {
++        0
++    } else {
++        -135
++    }
++}
++
++pub unsafe fn opensk_cc310_sign(private: *const u8, digest: *const u8, signature: *mut u8) -> i32 {
++    let Ok(key) = SigningKey::from_slice(unsafe { input::<32>(private) }) else { return -135 };
++    let value: Signature = key.sign_prehash(unsafe { input::<32>(digest) }).unwrap();
++    unsafe { core::ptr::copy_nonoverlapping(value.to_bytes().as_ptr(), signature, 64) };
++    0
++}
++
++pub unsafe fn opensk_cc310_verify(
++    public: *const u8, digest: *const u8, signature: *const u8,
++) -> i32 {
++    let Ok(key) = VerifyingKey::from_sec1_bytes(&encoded(unsafe { input::<64>(public) })) else {
++        return -135;
++    };
++    let Ok(sig) = Signature::from_slice(unsafe { input::<64>(signature) }) else { return -149 };
++    if key.verify_prehash(unsafe { input::<32>(digest) }, &sig).is_ok() { 0 } else { -149 }
++}
++
++pub unsafe fn opensk_cc310_shared(private: *const u8, public: *const u8, shared: *mut u8) -> i32 {
++    let Ok(key) = SecretKey::from_slice(unsafe { input::<32>(private) }) else { return -135 };
++    let Ok(public) = PublicKey::from_sec1_bytes(&encoded(unsafe { input::<64>(public) })) else {
++        return -135;
++    };
++    let value = p256::ecdh::diffie_hellman(key.to_nonzero_scalar(), public.as_affine());
++    unsafe { core::ptr::copy_nonoverlapping(value.raw_secret_bytes().as_ptr(), shared, 32) };
++    0
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/symmetric.rs b/crates/runner-nordic/crates/cc310/src/symmetric.rs
+new file mode 100644
+index 00000000..f539f82a
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/symmetric.rs
+@@ -0,0 +1,190 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Streaming SHA/HMAC adapters for the published Nordic PSA driver.
++use alloc::boxed::Box;
++
++use digest::crypto_common::{BlockSizeUser, KeySizeUser};
++use digest::{
++    FixedOutput, HashMarker, InvalidLength, Key, KeyInit, MacMarker, Output, OutputSizeUser, Update,
++};
++use typenum::{U32, U64};
++use wasefire_board_api::crypto::{GlobalError, WithError};
++use wasefire_board_api::{Error, Supported};
++use zeroize::{Zeroize, Zeroizing};
++
++use crate::{driver, traced_driver};
++
++static ERROR: GlobalError = GlobalError::new();
++fn record(failed: &mut bool, result: Result<(), Error>) {
++    if ERROR.record(result).is_none() {
++        *failed = true;
++    }
++}
++
++// Driver operation addresses stay stable as scheduler objects are moved.
++pub struct Sha256 {
++    state: Box<Zeroizing<[u32; 60]>>,
++    failed: bool,
++}
++impl Supported for Sha256 {}
++impl Default for Sha256 {
++    fn default() -> Self {
++        let mut value = Self { state: Box::new(Zeroizing::new([0; 60])), failed: false };
++        // SAFETY: The 60-word, u32-aligned state matches cc3xx_hash_operation_t.
++        record(
++            &mut value.failed,
++            traced_driver(7, || unsafe { ffi::opensk_cc310_hash_setup(value.state.as_mut_ptr()) }),
++        );
++        value
++    }
++}
++impl BlockSizeUser for Sha256 {
++    type BlockSize = U64;
++}
++impl OutputSizeUser for Sha256 {
++    type OutputSize = U32;
++}
++impl HashMarker for Sha256 {}
++impl WithError for Sha256 {
++    fn with_error<T>(operation: impl FnOnce() -> T) -> Result<T, Error> {
++        ERROR.with(operation)
++    }
++}
++impl Update for Sha256 {
++    fn update(&mut self, data: &[u8]) {
++        if self.failed {
++            ERROR.record::<()>(Err(Error::world(0)));
++            return;
++        }
++        // SAFETY: The state is live and data is readable for the duration of the call.
++        record(
++            &mut self.failed,
++            traced_driver(7, || unsafe {
++                ffi::opensk_cc310_hash_update(self.state.as_mut_ptr(), data.as_ptr(), data.len())
++            }),
++        );
++    }
++}
++impl FixedOutput for Sha256 {
++    fn finalize_into(mut self, output: &mut Output<Self>) {
++        output.zeroize();
++        if self.failed {
++            ERROR.record::<()>(Err(Error::world(0)));
++            return;
++        }
++        // SAFETY: output is 32 bytes and the state has the required layout.
++        record(
++            &mut self.failed,
++            traced_driver(7, || unsafe {
++                ffi::opensk_cc310_hash_finish(self.state.as_mut_ptr(), output.as_mut_ptr())
++            }),
++        );
++        if self.failed {
++            output.zeroize();
++        }
++    }
++}
++impl Drop for Sha256 {
++    fn drop(&mut self) {
++        // SAFETY: The state is valid or all-zero after a failed setup. Rust wipes it afterwards.
++        let _ = driver(|| unsafe { ffi::opensk_cc310_hash_abort(self.state.as_mut_ptr()) });
++    }
++}
++
++pub struct HmacSha256 {
++    state: Box<Zeroizing<[u32; 79]>>,
++    failed: bool,
++}
++impl Supported for HmacSha256 {}
++impl KeySizeUser for HmacSha256 {
++    type KeySize = U64;
++}
++impl OutputSizeUser for HmacSha256 {
++    type OutputSize = U32;
++}
++impl MacMarker for HmacSha256 {}
++impl WithError for HmacSha256 {
++    fn with_error<T>(operation: impl FnOnce() -> T) -> Result<T, Error> {
++        ERROR.with(operation)
++    }
++}
++impl KeyInit for HmacSha256 {
++    fn new(key: &Key<Self>) -> Self {
++        Self::new_from_slice(key).unwrap()
++    }
++    fn new_from_slice(key: &[u8]) -> Result<Self, InvalidLength> {
++        // RFC 2104 normalization supports empty/short and arbitrarily long keys.
++        let mut normalized = Zeroizing::new([0; 64]);
++        if key.len() > 64 {
++            use digest::Digest;
++            normalized[.. 32].copy_from_slice(&Sha256::digest(key));
++        } else {
++            normalized[.. key.len()].copy_from_slice(key);
++        }
++        let mut value = Self { state: Box::new(Zeroizing::new([0; 79])), failed: false };
++        // SAFETY: Both pointers have the exact layouts of the published C API.
++        record(
++            &mut value.failed,
++            traced_driver(2, || unsafe {
++                ffi::opensk_cc310_hmac_setup(value.state.as_mut_ptr(), normalized.as_ptr())
++            }),
++        );
++        Ok(value)
++    }
++}
++impl Update for HmacSha256 {
++    fn update(&mut self, data: &[u8]) {
++        if self.failed {
++            ERROR.record::<()>(Err(Error::world(0)));
++            return;
++        }
++        // SAFETY: The state is live and data is readable for the duration of the call.
++        record(
++            &mut self.failed,
++            traced_driver(2, || unsafe {
++                ffi::opensk_cc310_hmac_update(self.state.as_mut_ptr(), data.as_ptr(), data.len())
++            }),
++        );
++    }
++}
++impl FixedOutput for HmacSha256 {
++    fn finalize_into(mut self, output: &mut Output<Self>) {
++        output.zeroize();
++        if self.failed {
++            ERROR.record::<()>(Err(Error::world(0)));
++            return;
++        }
++        // SAFETY: output is 32 bytes and the state has the required layout.
++        record(
++            &mut self.failed,
++            traced_driver(2, || unsafe {
++                ffi::opensk_cc310_hmac_finish(self.state.as_mut_ptr(), output.as_mut_ptr())
++            }),
++        );
++        if self.failed {
++            output.zeroize();
++        }
++    }
++}
++impl Drop for HmacSha256 {
++    fn drop(&mut self) {
++        // SAFETY: The state is valid or all-zero after a failed setup. Rust wipes it afterwards.
++        let _ = driver(|| unsafe { ffi::opensk_cc310_hmac_abort(self.state.as_mut_ptr()) });
++    }
++}
++
++#[cfg(not(test))]
++mod ffi {
++    unsafe extern "C" {
++        pub fn opensk_cc310_hash_setup(state: *mut u32) -> i32;
++        pub fn opensk_cc310_hash_update(state: *mut u32, data: *const u8, size: usize) -> i32;
++        pub fn opensk_cc310_hash_finish(state: *mut u32, output: *mut u8) -> i32;
++        pub fn opensk_cc310_hash_abort(state: *mut u32) -> i32;
++        pub fn opensk_cc310_hmac_setup(state: *mut u32, key: *const u8) -> i32;
++        pub fn opensk_cc310_hmac_update(state: *mut u32, data: *const u8, size: usize) -> i32;
++        pub fn opensk_cc310_hmac_finish(state: *mut u32, output: *mut u8) -> i32;
++        pub fn opensk_cc310_hmac_abort(state: *mut u32) -> i32;
++    }
++}
++#[cfg(test)]
++#[path = "symmetric_model.rs"]
++mod ffi;
+diff --git a/crates/runner-nordic/crates/cc310/src/symmetric_model.rs b/crates/runner-nordic/crates/cc310/src/symmetric_model.rs
+new file mode 100644
+index 00000000..ad0b9966
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/symmetric_model.rs
+@@ -0,0 +1,65 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Host-only RustCrypto model. It never links into the ARM firmware.
++use alloc::boxed::Box;
++
++use hmac::Mac;
++use sha2::Digest;
++
++unsafe fn load<T>(state: *mut u32) -> *mut T {
++    // SAFETY: Model state was initialized with store() and has room for one pointer.
++    unsafe { state.cast::<*mut T>().read_unaligned() }
++}
++unsafe fn store<T>(state: *mut u32, value: *mut T) {
++    // SAFETY: Each published operation layout has room for one pointer; alignment is unrestricted.
++    unsafe { state.cast::<*mut T>().write_unaligned(value) };
++}
++unsafe fn free<T>(state: *mut u32) {
++    let ptr = unsafe { load::<T>(state) };
++    if !ptr.is_null() {
++        unsafe {
++            drop(Box::from_raw(ptr));
++            store::<T>(state, core::ptr::null_mut())
++        };
++    }
++}
++
++pub unsafe fn opensk_cc310_hash_setup(state: *mut u32) -> i32 {
++    unsafe { store(state, Box::into_raw(Box::new(sha2::Sha256::new()))) };
++    0
++}
++pub unsafe fn opensk_cc310_hash_update(state: *mut u32, data: *const u8, size: usize) -> i32 {
++    unsafe { (&mut *load::<sha2::Sha256>(state)).update(core::slice::from_raw_parts(data, size)) };
++    0
++}
++pub unsafe fn opensk_cc310_hash_finish(state: *mut u32, output: *mut u8) -> i32 {
++    let value = unsafe { (&*load::<sha2::Sha256>(state)).clone().finalize() };
++    unsafe { core::ptr::copy_nonoverlapping(value.as_ptr(), output, 32) };
++    0
++}
++pub unsafe fn opensk_cc310_hash_abort(state: *mut u32) -> i32 {
++    unsafe { free::<sha2::Sha256>(state) };
++    0
++}
++pub unsafe fn opensk_cc310_hmac_setup(state: *mut u32, key: *const u8) -> i32 {
++    let key = unsafe { core::slice::from_raw_parts(key, 64) };
++    let value = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).unwrap();
++    unsafe { store(state, Box::into_raw(Box::new(value))) };
++    0
++}
++pub unsafe fn opensk_cc310_hmac_update(state: *mut u32, data: *const u8, size: usize) -> i32 {
++    unsafe {
++        (&mut *load::<hmac::Hmac<sha2::Sha256>>(state))
++            .update(core::slice::from_raw_parts(data, size))
++    };
++    0
++}
++pub unsafe fn opensk_cc310_hmac_finish(state: *mut u32, output: *mut u8) -> i32 {
++    let value =
++        unsafe { (&*load::<hmac::Hmac<sha2::Sha256>>(state)).clone().finalize().into_bytes() };
++    unsafe { core::ptr::copy_nonoverlapping(value.as_ptr(), output, 32) };
++    0
++}
++pub unsafe fn opensk_cc310_hmac_abort(state: *mut u32) -> i32 {
++    unsafe { free::<hmac::Hmac<sha2::Sha256>>(state) };
++    0
++}
+diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
+new file mode 100644
+index 00000000..2b425d43
+--- /dev/null
++++ b/crates/runner-nordic/crates/cc310/src/tests.rs
+@@ -0,0 +1,257 @@
++// SPDX-License-Identifier: Apache-2.0
++extern crate std;
++use std::sync::Mutex;
++
++use p256::ecdsa::signature::hazmat::PrehashVerifier;
++use p256::ecdsa::{Signature, VerifyingKey};
++
++use super::*;
++
++// The hardware is globally serialized; independent host tests must be too.
++static TEST: Mutex<()> = Mutex::new(());
++fn key(value: u8) -> [u8; 32] {
++    let mut key = [0; 32];
++    key[31] = value;
++    key
++}
++fn hex<const N: usize>(input: &str) -> [u8; N] {
++    let mut out = [0; N];
++    assert_eq!(input.len(), N * 2);
++    for (i, byte) in out.iter_mut().enumerate() {
++        *byte = u8::from_str_radix(&input[2 * i .. 2 * i + 2], 16).unwrap();
++    }
++    out
++}
++
++#[test]
++fn storage_matches_existing_software_keys() {
++    let _test = TEST.lock().unwrap();
++    let key = key(7);
++    let mut imported = [0; 32];
++    <Impl as ecdsa::Api<32>>::import_private(&key, &mut imported).unwrap();
++    let mut exported = [0; 32];
++    <Impl as ecdsa::Api<32>>::export_private(&imported, &mut exported).unwrap();
++    assert_eq!(exported, key);
++    assert_eq!(<Impl as ecdsa::Api<32>>::WRAPPED, 32);
++    assert_eq!(<Impl as ecdsa::Api<32>>::PRIVATE, Layout::new::<[u8; 32]>());
++    assert_eq!(<Impl as ecdh::Api<32>>::PRIVATE, Layout::new::<[u8; 32]>());
++    assert_eq!(<Impl as ecdsa::Api<32>>::PUBLIC, Layout::new::<[u8; 64]>());
++}
++
++#[test]
++fn invalid_private_scalars_are_rejected() {
++    let _test = TEST.lock().unwrap();
++    for bad in [[0; 32], ORDER, [0xff; 32]] {
++        assert!(<Impl as ecdsa::Api<32>>::import_private(&bad, &mut [0; 32]).is_err());
++        assert!(<Impl as ecdsa::Api<32>>::public(&bad, &mut [0; 64]).is_err());
++        assert!(<Impl as ecdh::Api<32>>::shared(&bad, &[0; 64], &mut [0; 32]).is_err());
++    }
++    let mut last = ORDER;
++    last[31] -= 1;
++    assert!(<Impl as ecdsa::Api<32>>::import_private(&last, &mut [0; 32]).is_ok());
++}
++
++#[test]
++fn generator_public_encoding_and_ecdh_match_sec2() {
++    let _test = TEST.lock().unwrap();
++    let x = hex::<32>("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296");
++    let y = hex::<32>("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5");
++    let mut generated = [0; 32];
++    <Impl as ecdsa::Api<32>>::generate(&mut generated).unwrap();
++    assert!(private(&generated).is_ok());
++    let mut public = [0; 64];
++    <Impl as ecdh::Api<32>>::public(&key(1), &mut public).unwrap();
++    assert_eq!(&public[.. 32], &x);
++    assert_eq!(&public[32 ..], &y);
++    let mut imported = [0; 64];
++    <Impl as ecdh::Api<32>>::import_public(&x, &y, &mut imported).unwrap();
++    assert_eq!(imported, public);
++    let (mut out_x, mut out_y) = ([0; 32], [0; 32]);
++    <Impl as ecdsa::Api<32>>::export_public(&public, &mut out_x, &mut out_y).unwrap();
++    assert_eq!((out_x, out_y), (x, y));
++    let mut shared = [0; 32];
++    <Impl as ecdh::Api<32>>::shared(&key(1), &public, &mut shared).unwrap();
++    assert_eq!(shared, x);
++}
++
++#[test]
++fn ecdh_is_symmetric_and_exports_raw_x() {
++    let _test = TEST.lock().unwrap();
++    let (mut a, mut b) = ([0; 64], [0; 64]);
++    <Impl as ecdh::Api<32>>::public(&key(3), &mut a).unwrap();
++    <Impl as ecdh::Api<32>>::public(&key(11), &mut b).unwrap();
++    let (mut ab, mut ba) = ([0; 32], [0; 32]);
++    <Impl as ecdh::Api<32>>::shared(&key(3), &b, &mut ab).unwrap();
++    <Impl as ecdh::Api<32>>::shared(&key(11), &a, &mut ba).unwrap();
++    assert_eq!(ab, ba);
++    let mut exported = [0; 32];
++    <Impl as ecdh::Api<32>>::export_shared(&ab, &mut exported).unwrap();
++    assert_eq!(exported, ab);
++}
++
++#[test]
++fn signatures_are_prehash_and_cross_verify() {
++    let _test = TEST.lock().unwrap();
++    let digest = [0x42; 32];
++    let (mut r, mut s, mut public) = ([0; 32], [0; 32], [0; 64]);
++    <Impl as ecdsa::Api<32>>::sign(&key(13), &digest, &mut r, &mut s).unwrap();
++    <Impl as ecdsa::Api<32>>::public(&key(13), &mut public).unwrap();
++    assert!(<Impl as ecdsa::Api<32>>::verify(&public, &digest, &r, &s).unwrap());
++    let mut encoded = [4; 65];
++    encoded[1 ..].copy_from_slice(&public);
++    let verifying = VerifyingKey::from_sec1_bytes(&encoded).unwrap();
++    let signature = Signature::from_scalars(r, s).unwrap();
++    verifying.verify_prehash(&digest, &signature).unwrap();
++    assert!(!<Impl as ecdsa::Api<32>>::verify(&public, &[0x43; 32], &r, &s).unwrap());
++    r[0] ^= 1;
++    assert!(!<Impl as ecdsa::Api<32>>::verify(&public, &digest, &r, &s).unwrap());
++}
++
++#[test]
++fn invalid_points_and_lengths_leave_output_unchanged() {
++    let _test = TEST.lock().unwrap();
++    let mut output = [0xa5; 64];
++    assert!(<Impl as ecdh::Api<32>>::import_public(&[0; 32], &[0; 32], &mut output).is_err());
++    assert_eq!(output, [0xa5; 64]);
++    assert!(<Impl as ecdsa::Api<32>>::public(&key(1), &mut [0; 63]).is_err());
++    assert!(<Impl as ecdsa::Api<32>>::generate(&mut [0; 31]).is_err());
++    assert!(<Impl as ecdsa::Api<32>>::import_private(&key(1), &mut [0; 31]).is_err());
++    assert!(<Impl as ecdsa::Api<32>>::export_private(&key(1), &mut [0; 31]).is_err());
++    assert!(<Impl as ecdh::Api<32>>::shared(&key(1), &[0; 63], &mut [0; 32]).is_err());
++    assert!(<Impl as ecdh::Api<32>>::shared(&key(1), &[0; 64], &mut [0; 31]).is_err());
++}
++
++#[test]
++fn driver_errors_release_guard_and_never_commit_output() {
++    let _test = TEST.lock().unwrap();
++    ffi::INIT_ERROR.store(-147, Ordering::Relaxed);
++    let mut output = [0xa5; 64];
++    assert!(<Impl as ecdsa::Api<32>>::public(&key(1), &mut output).is_err());
++    assert_eq!(output, [0xa5; 64]);
++    assert!(!BUSY.load(Ordering::Relaxed));
++    <Impl as ecdsa::Api<32>>::public(&key(1), &mut output).unwrap();
++    BUSY.store(true, Ordering::Relaxed);
++    assert!(<Impl as ecdsa::Api<32>>::generate(&mut [0; 32]).is_err());
++    BUSY.store(false, Ordering::Relaxed);
++}
++
++#[test]
++fn dropping_private_and_shared_values_zeroizes() {
++    let _test = TEST.lock().unwrap();
++    let mut private = key(7);
++    <Impl as ecdsa::Api<32>>::drop_private(&mut private).unwrap();
++    assert_eq!(private, [0; 32]);
++    let mut private = key(7);
++    <Impl as ecdh::Api<32>>::drop_private(&mut private).unwrap();
++    assert_eq!(private, [0; 32]);
++    let mut shared = [0xff; 32];
++    <Impl as ecdh::Api<32>>::drop_shared(&mut shared).unwrap();
++    assert_eq!(shared, [0; 32]);
++}
++
++#[test]
++fn allocator_alignment_zero_fill_overflow_and_null_free() {
++    // SAFETY: Test follows the allocation API's pointer and ownership contracts.
++    unsafe {
++        assert!(mbedtls_calloc(usize::MAX, 2).is_null());
++        let ptr = mbedtls_calloc(3, 17);
++        assert!(!ptr.is_null());
++        assert_eq!(ptr as usize % 8, 0);
++        assert_eq!(core::slice::from_raw_parts(ptr.cast::<u8>(), 51), &[0; 51]);
++        mbedtls_free(ptr);
++        mbedtls_free(core::ptr::null_mut());
++    }
++}
++
++#[cfg(feature = "symmetric")]
++#[test]
++fn streaming_sha256_known_vector_and_independent_contexts() {
++    use digest::Output;
++    use wasefire_board_api::crypto::HashApi;
++    let _test = TEST.lock().unwrap();
++    let mut first = HashApi::<Sha256>::new().unwrap();
++    let mut second = HashApi::<Sha256>::new().unwrap();
++    first.update(b"a").unwrap();
++    second.update(b"hello").unwrap();
++    first.update(b"bc").unwrap();
++    let mut actual = Output::<Sha256>::default();
++    first.finalize_into(&mut actual).unwrap();
++    assert_eq!(
++        actual.as_slice(),
++        &hex::<32>("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
++    );
++    second.finalize_into(&mut actual).unwrap();
++    use sha2::Digest;
++    assert_eq!(actual.as_slice(), sha2::Sha256::digest(b"hello").as_slice());
++}
++
++#[cfg(feature = "symmetric")]
++#[test]
++fn rfc4231_hmac_short_long_and_empty_keys() {
++    use digest::Output;
++    use wasefire_board_api::crypto::HmacApi;
++    let _test = TEST.lock().unwrap();
++    let cases: &[(&[u8], &[u8])] = &[
++        (&[0x0b; 20], b"Hi There"),
++        (&[0xaa; 131], b"Test Using Larger Than Block-Size Key - Hash Key First"),
++        (&[], b""),
++    ];
++    for &(key, message) in cases {
++        let mut ctx = HmacApi::<HmacSha256>::new(key).unwrap();
++        ctx.update(message).unwrap();
++        let mut actual = Output::<HmacSha256>::default();
++        ctx.finalize_into(&mut actual).unwrap();
++        use hmac::Mac;
++        let mut reference = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).unwrap();
++        reference.update(message);
++        assert_eq!(actual.as_slice(), reference.finalize().into_bytes().as_slice());
++    }
++    let mut ctx = HmacApi::<HmacSha256>::new(&[0x0b; 20]).unwrap();
++    ctx.update(b"Hi There").unwrap();
++    let mut actual = Output::<HmacSha256>::default();
++    ctx.finalize_into(&mut actual).unwrap();
++    assert_eq!(
++        actual.as_slice(),
++        &hex::<32>("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
++    );
++}
++
++#[cfg(feature = "symmetric")]
++#[test]
++fn stream_errors_remain_visible_after_failure() {
++    use wasefire_board_api::crypto::HashApi;
++    let _test = TEST.lock().unwrap();
++    ffi::INIT_ERROR.store(-147, Ordering::Relaxed);
++    assert!(HashApi::<Sha256>::new().is_err());
++    let mut ctx = HashApi::<Sha256>::new().unwrap();
++    ffi::INIT_ERROR.store(-147, Ordering::Relaxed);
++    assert!(ctx.update(b"abc").is_err());
++    assert!(ctx.update(b"def").is_err());
++    assert!(ctx.finalize_into(&mut digest::Output::<Sha256>::default()).is_err());
++}
++
++#[cfg(feature = "oberon-ed25519")]
++#[test]
++fn rfc8032_ed25519_seed_signature_and_roundtrip() {
++    use wasefire_board_api::crypto::ed25519::Api;
++    let _test = TEST.lock().unwrap();
++    let seed = hex::<32>("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
++    let expected = hex::<32>("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
++    let signature=hex::<64>("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b");
++    let mut public = [0; 32];
++    Ed25519::public(&seed, &mut public).unwrap();
++    assert_eq!(public, expected);
++    let (mut r, mut s) = ([0; 32], [0; 32]);
++    Ed25519::sign(&seed, b"", &mut r, &mut s).unwrap();
++    assert_eq!(&r, &signature[.. 32]);
++    assert_eq!(&s, &signature[32 ..]);
++    assert!(Ed25519::verify(&public, b"", &r, &s).unwrap());
++    assert!(!Ed25519::verify(&public, b"x", &r, &s).unwrap());
++    let mut imported = [0; 32];
++    Ed25519::import_private(&seed, &mut imported).unwrap();
++    let mut exported = [0; 32];
++    Ed25519::export_private(&imported, &mut exported).unwrap();
++    assert_eq!(exported, seed);
++    Ed25519::drop_private(&mut imported).unwrap();
++    assert_eq!(imported, [0; 32]);
++}
+diff --git a/crates/runner-nordic/src/board/crypto.rs b/crates/runner-nordic/src/board/crypto.rs
+index 01c1f2b2..62055dd6 100644
+--- a/crates/runner-nordic/src/board/crypto.rs
++++ b/crates/runner-nordic/src/board/crypto.rs
+@@ -17,9 +17,40 @@ use wasefire_board_api::crypto;
+ #[cfg(feature = "aes128-ccm")]
+ mod ccm;
+ 
++#[cfg(all(
++    feature = "hardware-crypto-p256",
++    any(
++        feature = "software-crypto-p256",
++        feature = "software-crypto-p256-ecdh",
++        feature = "software-crypto-p256-ecdsa",
++    )
++))]
++compile_error!("CC310 and software P-256 backends cannot be enabled together");
++
++#[cfg(all(
++    feature = "hardware-crypto-symmetric",
++    any(feature = "software-crypto-sha256", feature = "software-crypto-hmac-sha256",)
++))]
++compile_error!("CC310 and software symmetric backends cannot be enabled together");
++
++#[cfg(all(feature = "oberon-ed25519", feature = "software-crypto-ed25519"))]
++compile_error!("Oberon and software Ed25519 backends cannot be enabled together");
++
+ pub enum Impl {}
+ 
+ impl crypto::Api for Impl {
++    #[cfg(feature = "oberon-ed25519")]
++    type Ed25519 = nrf_cc310::Ed25519;
++    #[cfg(feature = "hardware-crypto-symmetric")]
++    type HmacSha256 = nrf_cc310::HmacSha256;
++    #[cfg(feature = "hardware-crypto-symmetric")]
++    type Sha256 = nrf_cc310::Sha256;
++    #[cfg(feature = "software-crypto-ed25519")]
++    type Ed25519 = crypto::SoftwareEd25519<crypto::CryptoRng<crate::Board>>;
++    #[cfg(feature = "hardware-crypto-p256")]
++    type P256Ecdh = nrf_cc310::Impl;
++    #[cfg(feature = "hardware-crypto-p256")]
++    type P256Ecdsa = nrf_cc310::Impl;
+     #[cfg(feature = "aes128-ccm")]
+     type Aes128Ccm = ccm::Impl;
+     #[cfg(feature = "software-crypto-aes256-cbc")]
+@@ -37,3 +68,57 @@ impl crypto::Api for Impl {
+     #[cfg(feature = "software-crypto-sha256")]
+     type Sha256 = crypto::SoftwareSha256;
+ }
++
++// PSA requests use the existing nRF52840 RNG. The pinned Nordic ECC driver
++// also has an internal CTR-DRBG with its own CryptoCell entropy source.
++#[cfg(any(
++    feature = "hardware-crypto-p256",
++    feature = "hardware-crypto-symmetric",
++    feature = "oberon-ed25519"
++))]
++#[unsafe(no_mangle)]
++unsafe extern "C" fn psa_generate_random(output: *mut u8, size: usize) -> i32 {
++    if size == 0 {
++        return 0;
++    }
++    if output.is_null() || size > isize::MAX as usize {
++        return -135; // PSA_ERROR_INVALID_ARGUMENT
++    }
++    // SAFETY: The driver supplies a writable output allocation of size bytes.
++    let output = unsafe { core::slice::from_raw_parts_mut(output, size) };
++    match <crate::board::rng::Impl as wasefire_board_api::rng::Api>::fill_bytes(output) {
++        Ok(()) => 0,
++        Err(_) => -148, // PSA_ERROR_INSUFFICIENT_ENTROPY
++    }
++}
++
++// Makerdiary LED order is red P0.23, green P0.22, blue P0.24 (active low).
++// Display a three-bit operation code until its call returns. Preserve the first
++// returned error across destructors so cleanup cannot hide the failing call.
++#[cfg(all(feature = "cc310-trace", not(feature = "board-makerdiary")))]
++compile_error!("cc310-trace requires the Makerdiary RGB LED");
++
++#[cfg(feature = "cc310-trace")]
++#[unsafe(no_mangle)]
++extern "C" fn opensk_cc310_trace(operation: u32) {
++    use core::sync::atomic::{AtomicBool, Ordering};
++
++    use embedded_hal::digital::OutputPin;
++
++    static FAILED: AtomicBool = AtomicBool::new(false);
++    if FAILED.load(Ordering::Relaxed) {
++        return;
++    }
++    if operation & (1 << 31) != 0 {
++        FAILED.store(true, Ordering::Relaxed);
++    }
++    crate::with_state(|state| {
++        for (index, led) in state.leds.iter_mut().enumerate() {
++            if operation & (1 << index) != 0 {
++                let _ = led.set_low();
++            } else {
++                let _ = led.set_high();
++            }
++        }
++    });
++}
+diff --git a/examples/rust/crypto_compare/.gitignore b/examples/rust/crypto_compare/.gitignore
+new file mode 100644
+index 00000000..b83d2226
+--- /dev/null
++++ b/examples/rust/crypto_compare/.gitignore
+@@ -0,0 +1 @@
++/target/
+diff --git a/examples/rust/crypto_compare/Cargo.lock b/examples/rust/crypto_compare/Cargo.lock
+new file mode 100644
+index 00000000..d0728669
+--- /dev/null
++++ b/examples/rust/crypto_compare/Cargo.lock
+@@ -0,0 +1,708 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "aes"
++version = "0.8.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
++dependencies = [
++ "cfg-if",
++ "cipher",
++ "cpufeatures 0.2.17",
++]
++
++[[package]]
++name = "base16ct"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
++
++[[package]]
++name = "block-buffer"
++version = "0.10.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
++dependencies = [
++ "generic-array",
++]
++
++[[package]]
++name = "bytemuck"
++version = "1.25.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
++dependencies = [
++ "bytemuck_derive",
++]
++
++[[package]]
++name = "bytemuck_derive"
++version = "1.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6a1f896587b6f2c069c73d2f0913e2d590c3990285cd2f0b6aa02b786b4c679c"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.6",
++]
++
++[[package]]
++name = "cfg-if"
++version = "1.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
++
++[[package]]
++name = "chacha20"
++version = "0.10.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.1",
++ "rand_core 0.10.1",
++]
++
++[[package]]
++name = "cipher"
++version = "0.4.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
++dependencies = [
++ "crypto-common",
++ "inout",
++]
++
++[[package]]
++name = "const-oid"
++version = "0.9.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
++
++[[package]]
++name = "cpufeatures"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
++dependencies = [
++ "libc",
++]
++
++[[package]]
++name = "cpufeatures"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
++dependencies = [
++ "libc",
++]
++
++[[package]]
++name = "crypto-bigint"
++version = "0.5.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
++dependencies = [
++ "generic-array",
++ "rand_core 0.6.4",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "crypto-common"
++version = "0.1.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
++dependencies = [
++ "generic-array",
++ "typenum",
++]
++
++[[package]]
++name = "crypto_compare"
++version = "0.1.0"
++dependencies = [
++ "aes",
++ "ed25519-dalek",
++ "hmac",
++ "p256",
++ "sha2",
++ "wasefire",
++ "wasefire-stub",
++]
++
++[[package]]
++name = "curve25519-dalek"
++version = "4.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.2.17",
++ "curve25519-dalek-derive",
++ "digest",
++ "fiat-crypto",
++ "rustc_version",
++ "subtle",
++]
++
++[[package]]
++name = "curve25519-dalek-derive"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "data-encoding"
++version = "2.11.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
++
++[[package]]
++name = "data-encoding-macro"
++version = "0.1.21"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c6a127ecbb3c4632e1525380e04c0c3fcf8dcb44d32a79ea290d8a36906edcd8"
++dependencies = [
++ "data-encoding",
++ "data-encoding-macro-internal",
++]
++
++[[package]]
++name = "data-encoding-macro-internal"
++version = "0.1.19"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
++dependencies = [
++ "data-encoding",
++ "syn 3.0.6",
++]
++
++[[package]]
++name = "der"
++version = "0.7.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
++dependencies = [
++ "const-oid",
++ "zeroize",
++]
++
++[[package]]
++name = "digest"
++version = "0.10.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
++dependencies = [
++ "block-buffer",
++ "const-oid",
++ "crypto-common",
++ "subtle",
++]
++
++[[package]]
++name = "ecdsa"
++version = "0.16.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ee27f32b5c5292967d2d4a9d7f1e0b0aed2c15daded5a60300e4abb9d8020bca"
++dependencies = [
++ "der",
++ "digest",
++ "elliptic-curve",
++ "rfc6979",
++ "signature",
++]
++
++[[package]]
++name = "ed25519"
++version = "2.2.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
++dependencies = [
++ "signature",
++]
++
++[[package]]
++name = "ed25519-dalek"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
++dependencies = [
++ "curve25519-dalek",
++ "ed25519",
++ "rand_core 0.6.4",
++ "sha2",
++ "subtle",
++]
++
++[[package]]
++name = "elliptic-curve"
++version = "0.13.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
++dependencies = [
++ "base16ct",
++ "crypto-bigint",
++ "digest",
++ "ff",
++ "generic-array",
++ "group",
++ "hkdf",
++ "rand_core 0.6.4",
++ "sec1",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "ff"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
++dependencies = [
++ "rand_core 0.6.4",
++ "subtle",
++]
++
++[[package]]
++name = "fiat-crypto"
++version = "0.2.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
++
++[[package]]
++name = "generic-array"
++version = "0.14.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
++dependencies = [
++ "typenum",
++ "version_check",
++ "zeroize",
++]
++
++[[package]]
++name = "getrandom"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
++dependencies = [
++ "cfg-if",
++ "libc",
++ "wasi",
++]
++
++[[package]]
++name = "getrandom"
++version = "0.4.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
++dependencies = [
++ "cfg-if",
++ "libc",
++ "r-efi",
++ "rand_core 0.10.1",
++]
++
++[[package]]
++name = "group"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
++dependencies = [
++ "ff",
++ "rand_core 0.6.4",
++ "subtle",
++]
++
++[[package]]
++name = "hkdf"
++version = "0.12.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
++dependencies = [
++ "hmac",
++]
++
++[[package]]
++name = "hmac"
++version = "0.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
++dependencies = [
++ "digest",
++]
++
++[[package]]
++name = "inout"
++version = "0.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
++dependencies = [
++ "generic-array",
++]
++
++[[package]]
++name = "libc"
++version = "0.2.190"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
++
++[[package]]
++name = "num_enum"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
++dependencies = [
++ "num_enum_derive",
++ "rustversion",
++]
++
++[[package]]
++name = "num_enum_derive"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "p256"
++version = "0.13.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
++dependencies = [
++ "ecdsa",
++ "elliptic-curve",
++ "primeorder",
++ "sha2",
++]
++
++[[package]]
++name = "p384"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fe42f1670a52a47d448f14b6a5c61dd78fce51856e68edaa38f7ae3a46b8d6b6"
++dependencies = [
++ "ecdsa",
++ "elliptic-curve",
++ "primeorder",
++ "sha2",
++]
++
++[[package]]
++name = "portable-atomic"
++version = "1.15.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
++
++[[package]]
++name = "primeorder"
++version = "0.13.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
++dependencies = [
++ "elliptic-curve",
++]
++
++[[package]]
++name = "proc-macro2"
++version = "1.0.107"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
++dependencies = [
++ "unicode-ident",
++]
++
++[[package]]
++name = "quote"
++version = "1.0.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
++dependencies = [
++ "proc-macro2",
++]
++
++[[package]]
++name = "r-efi"
++version = "6.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
++
++[[package]]
++name = "rand"
++version = "0.10.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
++dependencies = [
++ "chacha20",
++ "getrandom 0.4.3",
++ "rand_core 0.10.1",
++]
++
++[[package]]
++name = "rand_core"
++version = "0.6.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
++dependencies = [
++ "getrandom 0.2.17",
++]
++
++[[package]]
++name = "rand_core"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
++
++[[package]]
++name = "rfc6979"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
++dependencies = [
++ "hmac",
++ "subtle",
++]
++
++[[package]]
++name = "rustc_version"
++version = "0.4.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
++dependencies = [
++ "semver",
++]
++
++[[package]]
++name = "rustversion"
++version = "1.0.23"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
++
++[[package]]
++name = "sealed"
++version = "0.6.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "22f968c5ea23d555e670b449c1c5e7b2fc399fdaec1d304a17cd48e288abc107"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "sec1"
++version = "0.7.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
++dependencies = [
++ "base16ct",
++ "der",
++ "generic-array",
++ "subtle",
++ "zeroize",
++]
++
++[[package]]
++name = "semver"
++version = "1.0.28"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
++
++[[package]]
++name = "sha2"
++version = "0.10.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.2.17",
++ "digest",
++]
++
++[[package]]
++name = "signature"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
++dependencies = [
++ "digest",
++ "rand_core 0.6.4",
++]
++
++[[package]]
++name = "spin"
++version = "0.12.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
++dependencies = [
++ "portable-atomic",
++]
++
++[[package]]
++name = "subtle"
++version = "2.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
++
++[[package]]
++name = "syn"
++version = "2.0.119"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "syn"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "typenum"
++version = "1.20.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
++
++[[package]]
++name = "unicode-ident"
++version = "1.0.26"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
++
++[[package]]
++name = "version_check"
++version = "0.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
++
++[[package]]
++name = "wasefire"
++version = "0.8.2-git"
++dependencies = [
++ "bytemuck",
++ "crypto-common",
++ "sealed",
++ "typenum",
++ "wasefire-applet-api",
++ "wasefire-common",
++ "wasefire-error",
++ "wasefire-one-of",
++ "wasefire-sync",
++]
++
++[[package]]
++name = "wasefire-applet-api"
++version = "0.9.1-git"
++dependencies = [
++ "bytemuck",
++ "wasefire-applet-api-macro",
++ "wasefire-error",
++ "wasefire-logger",
++ "wasefire-one-of",
++]
++
++[[package]]
++name = "wasefire-applet-api-desc"
++version = "0.3.0-git"
++dependencies = [
++ "data-encoding",
++ "data-encoding-macro",
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "wasefire-applet-api-macro"
++version = "0.9.1-git"
++dependencies = [
++ "wasefire-applet-api-desc",
++]
++
++[[package]]
++name = "wasefire-common"
++version = "0.1.2-git"
++dependencies = [
++ "wasefire-error",
++ "wasefire-sync",
++]
++
++[[package]]
++name = "wasefire-error"
++version = "0.1.5-git"
++dependencies = [
++ "num_enum",
++]
++
++[[package]]
++name = "wasefire-logger"
++version = "0.2.2-git"
++
++[[package]]
++name = "wasefire-one-of"
++version = "0.1.3-git"
++
++[[package]]
++name = "wasefire-stub"
++version = "0.1.8-git"
++dependencies = [
++ "crypto-common",
++ "digest",
++ "ecdsa",
++ "ed25519-dalek",
++ "elliptic-curve",
++ "hkdf",
++ "hmac",
++ "p256",
++ "p384",
++ "rand",
++ "rand_core 0.6.4",
++ "sha2",
++ "signature",
++ "wasefire-applet-api",
++ "wasefire-error",
++ "wasefire-logger",
++ "zeroize",
++]
++
++[[package]]
++name = "wasefire-sync"
++version = "0.1.4-git"
++dependencies = [
++ "portable-atomic",
++ "spin",
++]
++
++[[package]]
++name = "wasi"
++version = "0.11.1+wasi-snapshot-preview1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
++
++[[package]]
++name = "zeroize"
++version = "1.9.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+diff --git a/examples/rust/crypto_compare/Cargo.toml b/examples/rust/crypto_compare/Cargo.toml
+new file mode 100644
+index 00000000..16a44379
+--- /dev/null
++++ b/examples/rust/crypto_compare/Cargo.toml
+@@ -0,0 +1,20 @@
++[package]
++name = "crypto_compare"
++version = "0.1.0"
++edition = "2024"
++license = "Apache-2.0"
++publish = false
++
++[dependencies]
++aes = { version = "0.8.4", default-features = false }
++hmac = { version = "0.12.1", default-features = false }
++p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "ecdh"] }
++sha2 = { version = "0.10.9", default-features = false }
++ed25519-dalek = { version = "2.2.0", default-features = false, optional = true }
++wasefire = { path = "../../../crates/prelude" }
++wasefire-stub = { path = "../../../crates/stub", optional = true }
++
++[features]
++nordic = []
++ed25519 = ["dep:ed25519-dalek"]
++test = ["dep:wasefire-stub", "wasefire/test"]
+diff --git a/examples/rust/crypto_compare/src/lib.rs b/examples/rust/crypto_compare/src/lib.rs
+new file mode 100644
+index 00000000..f9b2b7b3
+--- /dev/null
++++ b/examples/rust/crypto_compare/src/lib.rs
+@@ -0,0 +1,242 @@
++// SPDX-License-Identifier: Apache-2.0
++//! Common device cross-checks and finite benchmarks; never accesses credential storage.
++//! RustCrypto is deliberately linked here as a reference, only in this test applet.
++#![no_std]
++wasefire::applet!();
++
++#[cfg(not(feature = "test"))]
++use aes::cipher::{BlockEncrypt, KeyInit};
++use hmac::Mac;
++use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
++use sha2::Digest as _;
++use wasefire::crypto::{ecdh, ecdsa, hash};
++
++const MESSAGE: &[u8] = b"OpenSK software/Nordic interoperability";
++const SAMPLES: u64 = 20;
++
++fn scalar(n: u8) -> [u8; 32] {
++    let mut result = [0; 32];
++    result[31] = n;
++    result
++}
++
++pub fn main() -> ! {
++    debug!(
++        "backend={} reference=RustCrypto",
++        if cfg!(feature = "nordic") { "Nordic" } else { "software" }
++    );
++    p256_checks();
++    symmetric_checks();
++    #[cfg(feature = "ed25519")]
++    ed25519_checks();
++    debug!("CROSS-CHECK PASS");
++    benchmark();
++    debug!("BENCHMARK COMPLETE");
++    scheduling::exit();
++}
++
++fn p256_checks() {
++    let a = scalar(1);
++    let b = scalar(2);
++    let digest: [u8; 32] = sha2::Sha256::digest(MESSAGE).into();
++    let reference = p256::ecdsa::SigningKey::from_slice(&a).unwrap();
++    let reference_public = reference.verifying_key();
++    let key = ecdsa::Private::<ecdsa::P256>::import(&a).unwrap();
++    assert_eq!(&*key.export().unwrap(), &a);
++    let public = key.public().unwrap();
++    let mut x = [0; 32];
++    let mut y = [0; 32];
++    public.export(&mut x, &mut y).unwrap();
++    let point = reference_public.to_encoded_point(false);
++    assert_eq!(&x, point.x().unwrap().as_slice());
++    assert_eq!(&y, point.y().unwrap().as_slice());
++
++    let signature: p256::ecdsa::Signature = reference.sign_prehash(&digest).unwrap();
++    reference_public.verify_prehash(&digest, &signature).unwrap();
++    let bytes = signature.to_bytes();
++    assert!(public.verify_prehash(&digest, &bytes[.. 32], &bytes[32 ..]).unwrap());
++    let mut r = [0; 32];
++    let mut s = [0; 32];
++    key.sign_prehash(&digest, &mut r, &mut s).unwrap();
++    assert!(public.verify_prehash(&digest, &r, &s).unwrap());
++    reference_public
++        .verify_prehash(&digest, &p256::ecdsa::Signature::from_scalars(r, s).unwrap())
++        .unwrap();
++    let mut wrong = digest;
++    wrong[0] ^= 1;
++    assert!(!public.verify_prehash(&wrong, &r, &s).unwrap());
++    assert!(public.verify_prehash(&digest[.. 31], &r, &s).is_err());
++    // Software imports raw storage; invalid scalars are rejected when used.
++    if let Ok(invalid) = ecdsa::Private::<ecdsa::P256>::import(&[0; 32]) {
++        assert!(invalid.public().is_err());
++    }
++    if let Ok(invalid) = ecdsa::Public::<ecdsa::P256>::import(&[0; 32], &[0; 32]) {
++        assert!(invalid.verify_prehash(&digest, &r, &s).is_err());
++    }
++    let generated = ecdsa::Private::<ecdsa::P256>::generate().unwrap();
++    p256::SecretKey::from_slice(&generated.export().unwrap()).unwrap();
++
++    let ra = p256::SecretKey::from_slice(&a).unwrap();
++    let rb = p256::SecretKey::from_slice(&b).unwrap();
++    let expected = p256::ecdh::diffie_hellman(ra.to_nonzero_scalar(), rb.public_key().as_affine());
++    let reverse = p256::ecdh::diffie_hellman(rb.to_nonzero_scalar(), ra.public_key().as_affine());
++    assert_eq!(expected.raw_secret_bytes(), reverse.raw_secret_bytes());
++    let ka = ecdh::Private::<ecdh::P256>::import_testonly(&a).unwrap();
++    let kb = ecdh::Private::<ecdh::P256>::import_testonly(&b).unwrap();
++    for (private, public) in [(&ka, kb.public().unwrap()), (&kb, ka.public().unwrap())] {
++        let shared = ecdh::Shared::<ecdh::P256>::new(private, &public).unwrap();
++        let mut actual = [0; 32];
++        shared.export(&mut actual).unwrap();
++        assert_eq!(&actual, expected.raw_secret_bytes().as_slice());
++    }
++    if let Ok(invalid) = ecdh::Public::<ecdh::P256>::import(&[0; 32], &[0; 32]) {
++        assert!(ecdh::Shared::<ecdh::P256>::new(&ka, &invalid).is_err());
++    }
++    debug!("P256 four signature paths, both ECDH directions, invalid inputs: PASS");
++}
++
++fn symmetric_checks() {
++    // Wasefire's host stub has no CBC symbols; device builds run this section.
++    #[cfg(not(feature = "test"))]
++    {
++        let key = [0x42; 32];
++        let iv = [0x24; 16];
++        let plaintext = [0x5a; 64];
++        let cipher = aes::Aes256::new((&key).into());
++        let mut expected = plaintext;
++        let mut previous = iv;
++        for block in expected.chunks_exact_mut(16) {
++            for (byte, mask) in block.iter_mut().zip(previous) {
++                *byte ^= mask;
++            }
++            cipher.encrypt_block(block.into());
++            previous.copy_from_slice(block);
++        }
++        let mut actual = plaintext;
++        crypto::cbc::encrypt(&key, &iv, &mut actual).unwrap();
++        assert_eq!(actual, expected);
++        crypto::cbc::decrypt(&key, &iv, &mut actual).unwrap();
++        assert_eq!(actual, plaintext);
++        assert!(crypto::cbc::encrypt(&key, &iv, &mut [0; 17]).is_err());
++    }
++    assert_eq!(hash::sha256(b"abc").unwrap().as_slice(), sha2::Sha256::digest(b"abc").as_slice());
++    // Exercise independent contexts, long/empty HMAC keys and non-block-sized updates.
++    for key in [&[][..], &[0x0b; 20][..], &[0xaa; 131][..]] {
++        let mut reference = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(key).unwrap();
++        reference.update(MESSAGE);
++        let mut actual = [0; 32];
++        hash::Hmac::hmac(hash::Algorithm::Sha256, key, MESSAGE, &mut actual).unwrap();
++        assert_eq!(actual.as_slice(), reference.finalize().into_bytes().as_slice());
++    }
++    let mut a = hash::Digest::new(hash::Algorithm::Sha256).unwrap();
++    let mut b = hash::Digest::new(hash::Algorithm::Sha256).unwrap();
++    a.update(b"a");
++    b.update(b"");
++    a.update(b"bc");
++    let mut actual = [0; 32];
++    a.finalize(&mut actual).unwrap();
++    assert_eq!(actual, hash::sha256(b"abc").unwrap());
++    b.finalize(&mut actual).unwrap();
++    assert_eq!(actual, hash::sha256(b"").unwrap());
++    debug!("SHA256 and HMAC cross-checks: PASS");
++    #[cfg(not(feature = "test"))]
++    debug!("AES-CBC cross-checks: PASS");
++    #[cfg(feature = "test")]
++    debug!("AES-CBC host stub: SKIP (no implementation)");
++}
++
++#[cfg(feature = "ed25519")]
++fn ed25519_checks() {
++    use ed25519_dalek::{Signer, Verifier};
++    let seed = [0x42; 32];
++    let reference = ed25519_dalek::SigningKey::from_bytes(&seed);
++    let key = crypto::ed25519::Private::import(&seed).unwrap();
++    assert_eq!(&*key.export().unwrap(), &seed);
++    let public = key.public().unwrap();
++    let mut actual = [0; 32];
++    public.export(&mut actual).unwrap();
++    assert_eq!(&actual, reference.verifying_key().as_bytes());
++    let signature = reference.sign(MESSAGE);
++    let bytes = signature.to_bytes();
++    assert!(
++        public
++            .verify(MESSAGE, bytes[.. 32].try_into().unwrap(), bytes[32 ..].try_into().unwrap())
++            .unwrap()
++    );
++    let mut r = [0; 32];
++    let mut s = [0; 32];
++    key.sign(MESSAGE, &mut r, &mut s).unwrap();
++    assert!(public.verify(MESSAGE, &r, &s).unwrap());
++    let mut signature = [0; 64];
++    signature[.. 32].copy_from_slice(&r);
++    signature[32 ..].copy_from_slice(&s);
++    reference
++        .verifying_key()
++        .verify(MESSAGE, &ed25519_dalek::Signature::from_bytes(&signature))
++        .unwrap();
++    assert!(!public.verify(b"wrong", &r, &s).unwrap());
++    debug!("Ed25519 cross-check: PASS (Nordic Ed25519 is Oberon SOFTWARE)");
++}
++
++fn measure(name: &str, mut operation: impl FnMut()) {
++    operation(); // Warm-up outside the measured interval.
++    let start = clock::uptime_us().unwrap();
++    for _ in 0 .. SAMPLES {
++        operation();
++    }
++    let elapsed = clock::uptime_us().unwrap() - start;
++    debug!("BENCH op={name} samples={SAMPLES} total_us={elapsed} mean_us={}", elapsed / SAMPLES);
++}
++
++fn benchmark() {
++    let key = ecdsa::Private::<ecdsa::P256>::import(&scalar(1)).unwrap();
++    let public = key.public().unwrap();
++    let digest = hash::sha256(MESSAGE).unwrap();
++    let mut r = [0; 32];
++    let mut s = [0; 32];
++    key.sign_prehash(&digest, &mut r, &mut s).unwrap();
++    measure("p256_keygen", || {
++        core::hint::black_box(ecdsa::Private::<ecdsa::P256>::generate().unwrap());
++    });
++    measure("ecdsa_sign_prehash", || {
++        key.sign_prehash(&digest, &mut r, &mut s).unwrap();
++    });
++    measure("ecdsa_verify_prehash", || {
++        assert!(public.verify_prehash(&digest, &r, &s).unwrap());
++    });
++    let a = ecdh::Private::<ecdh::P256>::import_testonly(&scalar(1)).unwrap();
++    let b = ecdh::Private::<ecdh::P256>::import_testonly(&scalar(2)).unwrap().public().unwrap();
++    measure("ecdh", || {
++        core::hint::black_box(ecdh::Shared::<ecdh::P256>::new(&a, &b).unwrap());
++    });
++    measure("aes256_cbc_256B", || {
++        let mut blocks = [0x5a; 256];
++        crypto::cbc::encrypt(&[0x42; 32], &[0x24; 16], &mut blocks).unwrap();
++        core::hint::black_box(blocks);
++    });
++    measure("hmac_sha256_256B", || {
++        let mut output = [0; 32];
++        hash::Hmac::hmac(hash::Algorithm::Sha256, &[0x42; 32], &[0x5a; 256], &mut output).unwrap();
++        core::hint::black_box(output);
++    });
++}
++
++#[cfg(feature = "test")]
++use wasefire_stub as _;
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn software_stub_p256_cross_checks() {
++        p256_checks();
++    }
++    #[test]
++    fn software_stub_symmetric_cross_checks() {
++        symmetric_checks();
++    }
++    #[cfg(feature = "ed25519")]
++    #[test]
++    fn software_stub_ed25519_cross_checks() {
++        ed25519_checks();
++    }
++}
