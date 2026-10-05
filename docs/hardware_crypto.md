@@ -90,8 +90,9 @@ New CC310 Ed25519 and general RNG paths have passed host adapter tests and
 ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
 user's board. Ed25519 public/signature vectors, valid-signature verification,
 changed-message rejection, fresh key generation/signing/verification and
-private-key wiping also passed on hardware. The additional ECC, RSA, SRP
-and ChaCha20-Poly1305 stages are still being verified.
+private-key wiping also passed on hardware. All eight additional ECC curves
+and RSA-2048 have now passed the hardware diagnostic; SRP and
+ChaCha20-Poly1305 are still being verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -127,23 +128,25 @@ outputs; Nordic's pinned mapper selects it using field bits 224.
 The pinned PSA binary rejects 160-bit and P-521 domain mappings; these curves
 are not exposed. SHA-384/SHA-512 digests may be supplied to ECDSA externally,
 but their hash computation is not a CC310 hardware path. Hardware execution
-has passed the full P-192, P-224, P-256, P-384 and secp192k1 stages.
-secp224k1 public derivation, signing, verification, changed-digest rejection
-and ECDH passed; its fresh key generation failed at stage 6 / curve 6 /
-operation 6. Later curves have not yet run. Host tests require OpenSSL development headers.
+has passed all eight curve stages, including fresh key generation.
+The secp224k1 fresh-key signing, verification, changed-digest rejection and
+ECDH checks also passed after preserving the full 225-bit scalar.
+Host tests require OpenSSL development headers.
 
 The `rsa` adapter feature provides 1024/1536/2048-bit key generation,
 PKCS#1 DER public/private keys, SHA-256 PKCS#1 v1.5/PSS signatures and
 PKCS#1 v1.5/OAEP-SHA256 encryption/decryption. Secret DER and plaintext
 buffers are zeroized. RSA-2048 host OpenSSL round trips and rejection checks
-pass; physical-device RSA execution is pending.
+pass. The same RSA-2048 key generation, export, signature/rejection and
+encryption/decryption checks passed on the physical board.
 
 The ARM-only `srp` adapter feature provides Nordic legacy SRP-6a/SHA-256
 contexts for trusted 1024/1536/2048/3072-bit groups, random salt/verifiers,
 ephemeral public keys, session keys and mutual proofs. It uses the same
 v0.9.19 legacy/core libraries and CC310 SHA-256 hooks; secret contexts are wiped.
 ABI assertions match the pinned 1020-byte SRP context. SRP has passed ARM
-compilation and full linking; its cryptographic execution is still pending.
+compilation and full linking. The first SRP-3072 hardware round trip failed;
+operation and raw-status diagnostics now distinguish the failed call.
 
 Build the single hardware diagnostic image with
 `./tools/build_cc310_tests.sh --self-test-only`. It writes
@@ -176,6 +179,16 @@ ECC verifier failures also append white bursts for the raw PSA
 status: 1 invalid signature, 2 invalid argument, 3 not supported, 4 hardware
 failure, 5 buffer too small, 6 corruption detected, 7 other error.
 For example, red 6 / blue 1 / green 2 means P-192 signing failed.
+SRP blue bursts identify the exchange (1 valid, 2 tampered user proof), and
+green bursts identify the operation: 1 user initialization, 2 host initialization,
+3 salt/verifier, 4 user public key, 5 host public key, 6 user proof/key,
+7 host proof/key, 8 matching session keys, 9 user verifies host proof,
+10 unusable host context after rejection. White bursts identify the raw status:
+1 invalid parameter, 2 invalid modulus size, 3 uninitialized state, 4 proof/result
+mismatch, 5 PKA parameter error, 6 internal PKA error, 7 PSA argument/buffer
+error, 8 PSA hardware failure, 9 insufficient entropy, 10 other,
+11 MD bad input, 12 MD allocation failure. A long steady white light before
+red/blue/green bursts is the active SRP stage, not a white error burst.
 Repeated green alone remains the all-stages-passed signal.
 RTT logs also identify the ECC curve and operation separately.
 Ed25519 substeps are 1 public derivation/vector,

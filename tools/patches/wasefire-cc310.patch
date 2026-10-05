@@ -4645,10 +4645,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..ca0527d2
+index 00000000..859268e3
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,329 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4923,9 +4923,9 @@ index 00000000..ca0527d2
 +    }
 +    progress(8, 0);
 +    progress(8, 1);
-+    srp_roundtrip(false)?;
++    srp_roundtrip(false, &mut progress)?;
 +    progress(8, 2);
-+    srp_roundtrip(true)?;
++    srp_roundtrip(true, &mut progress)?;
 +    progress(9, 0);
 +    let key = hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
 +    let nonce = hex("070000004041424344454647");
@@ -4940,9 +4940,11 @@ index 00000000..ca0527d2
 +    check(chacha20poly1305::decrypt(&key, &nonce, &aad, &cipher, &tag, &mut clear).is_err())?;
 +    Ok(())
 +}
-+fn srp_roundtrip(tamper: bool) -> Result<(), Error> {
++fn srp_roundtrip(tamper: bool, progress: &mut impl FnMut(u32, u32)) -> Result<(), Error> {
++    let mut operation = |next: u32| progress(8, ((if tamper { 2 } else { 1 }) << 8) | next);
 +    // RFC5054's 3072-bit group: RFC3526 prime, generator 5.
 +    let modulus=hex::<384>("ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a93ad2caffffffffffffffff");
++    operation(1);
 +    let mut user = srp::Context::new(
 +        srp::Entity::User,
 +        &modulus,
@@ -4950,28 +4952,38 @@ index 00000000..ca0527d2
 +        b"cc310-test",
 +        Some(b"ephemeral-test-password"),
 +    )?;
++    operation(2);
 +    let mut host = srp::Context::new(srp::Entity::Host, &modulus, 5, b"cc310-test", None)?;
 +    let mut salt = [0; 16];
++    operation(3);
 +    let verifier = user.verifier(&mut salt)?;
++    operation(4);
 +    let a = user.public(None)?;
++    operation(5);
 +    let b = host.public(Some(&verifier))?;
++    operation(6);
 +    let mut session = user.user_proof(&salt, &a, &b)?;
 +    if tamper {
 +        session.proof[0] ^= 1;
++        operation(7);
 +        check(host.host_proof(&salt, &verifier, &a, &b, &session.proof).is_err())?;
++        operation(10);
 +        check(host.public(Some(&verifier)).is_err())
 +    } else {
++        operation(7);
 +        let host_session = host.host_proof(&salt, &verifier, &a, &b, &session.proof)?;
++        operation(8);
 +        check(session.key == host_session.key)?;
++        operation(9);
 +        user.user_verify(&session.key, &a, &session.proof, &host_session.proof)
 +    }
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/srp.rs b/crates/runner-nordic/crates/cc310/src/srp.rs
 new file mode 100644
-index 00000000..09723eeb
+index 00000000..c4633665
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/srp.rs
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,278 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Nordic legacy SRP-6a/SHA-256, available on ARM. Caller supplies a trusted group.
 +//! A context belongs to one exchange. Do not reuse ephemeral keys across exchanges.
@@ -4983,6 +4995,22 @@ index 00000000..09723eeb
 +use zeroize::{Zeroize, Zeroizing};
 +
 +use crate::{driver, length};
++
++#[cfg(feature = "self-test")]
++static STATUS: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(0);
++/// Last raw Nordic SRP status, before conversion to a board error.
++#[cfg(feature = "self-test")]
++pub fn diagnostic_status() -> i32 {
++    STATUS.load(core::sync::atomic::Ordering::Relaxed)
++}
++fn srp_driver(f: impl FnOnce() -> i32) -> Result<(), Error> {
++    driver(|| {
++        let result = f();
++        #[cfg(feature = "self-test")]
++        STATUS.store(result, core::sync::atomic::Ordering::Relaxed);
++        result
++    })
++}
 +
 +#[derive(Clone, Copy)]
 +pub enum Entity {
@@ -5037,7 +5065,7 @@ index 00000000..09723eeb
 +        let mut password = Zeroizing::new(password.unwrap_or_default().to_vec());
 +        // SAFETY: Context and maximum-width modulus are correctly sized; other inputs are live
 +        // copies.
-+        driver(|| unsafe {
++        srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_init(
 +                result.ptr(),
 +                host,
@@ -5091,7 +5119,7 @@ index 00000000..09723eeb
 +        let mut s = Zeroizing::new(salt.to_vec());
 +        let mut v = Zeroizing::new(vec![0; 384]);
 +        // SAFETY: Context is exclusive; legacy fixed-width output is fully reserved.
-+        let result = driver(|| unsafe {
++        let result = srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_verifier(self.ptr(), s.as_mut_ptr(), s.len(), v.as_mut_ptr())
 +        });
 +        self.complete(result)?;
@@ -5112,7 +5140,7 @@ index 00000000..09723eeb
 +        };
 +        let mut output = vec![0; 384];
 +        // SAFETY: All legacy modulus arrays have their full 384-byte capacity.
-+        let result = driver(|| unsafe {
++        let result = srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_public(self.ptr(), self.host, v.as_mut_ptr(), output.as_mut_ptr())
 +        });
 +        self.complete(result)?;
@@ -5130,7 +5158,7 @@ index 00000000..09723eeb
 +        let mut proof = [0; 64];
 +        let mut key = Zeroizing::new(vec![0; 128]);
 +        // SAFETY: Fixed-width legacy buffers and exclusive initialized context are live.
-+        let result = driver(|| unsafe {
++        let result = srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_user_proof(
 +                self.ptr(),
 +                salt.as_mut_ptr(),
@@ -5161,7 +5189,7 @@ index 00000000..09723eeb
 +        let mut proof = [0; 64];
 +        let mut key = Zeroizing::new(vec![0; 128]);
 +        // SAFETY: Every legacy fixed-width output/input is fully allocated.
-+        let result = driver(|| unsafe {
++        let result = srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_host_proof(
 +                self.ptr(),
 +                salt.as_mut_ptr(),
@@ -5194,7 +5222,7 @@ index 00000000..09723eeb
 +        user[.. 32].copy_from_slice(user_proof);
 +        host[.. 32].copy_from_slice(host_proof);
 +        // SAFETY: Full legacy buffers and exclusive context remain alive throughout the call.
-+        let result = driver(|| unsafe {
++        let result = srp_driver(|| unsafe {
 +            ffi::opensk_cc310_srp_user_verify(
 +                self.ptr(),
 +                k.as_mut_ptr(),
@@ -6248,7 +6276,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..b0a71910 100644
+index 891500fd..2ca8421f 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -6301,7 +6329,7 @@ index 891500fd..b0a71910 100644
      Scheduler::<Board>::run();
  }
  
-@@ -393,3 +401,91 @@ fn usbd() {
+@@ -393,3 +401,111 @@ fn usbd() {
          state.serial.tick(polled, |event| state.events.push(event.into()));
      });
  }
@@ -6328,9 +6356,9 @@ index 891500fd..b0a71910 100644
 +    let result = nrf_cc310::self_test::run(|next, substep| {
 +        stage = next;
 +        step = substep;
-+        if next == 6 {
++        if matches!(next, 6 | 8) {
 +            log::debug!(
-+                "CC310 self-test stage {} curve {} operation {}",
++                "CC310 self-test stage {} case {} operation {}",
 +                next,
 +                substep >> 8,
 +                substep & 0xff,
@@ -6343,6 +6371,8 @@ index 891500fd..b0a71910 100644
 +    log::debug!("CC310 self-test: stage={} step={} result={:?}", stage, step, result);
 +    let verify_status = nrf_cc310::ecc::diagnostic_verify_status();
 +    log::debug!("CC310 self-test: raw ECC verify status={}", verify_status);
++    let srp_status = nrf_cc310::srp::diagnostic_status();
++    log::debug!("CC310 self-test: raw SRP status={:#x}", srp_status);
 +    loop {
 +        // Green blinking: all checks passed. Red bursts count the failed stage.
 +        let (count, code) = if result.is_ok() { (1, 2) } else { (stage, 1) };
@@ -6353,9 +6383,9 @@ index 891500fd..b0a71910 100644
 +            cortex_m::asm::delay(8_000_000);
 +        }
 +        if result.is_err() && step != 0 {
-+            // ECC: blue counts the curve, then green counts its failed operation.
++            // ECC/SRP: blue counts the curve/exchange, green the failed operation.
 +            let (substep, operation) =
-+                if stage == 6 { (step >> 8, step & 0xff) } else { (step, 0) };
++                if matches!(stage, 6 | 8) { (step >> 8, step & 0xff) } else { (step, 0) };
 +            for (count, code) in [(substep, 4), (operation, 2)] {
 +                if count == 0 {
 +                    continue;
@@ -6388,6 +6418,24 @@ index 891500fd..b0a71910 100644
 +                    color(0);
 +                    cortex_m::asm::delay(8_000_000);
 +                }
++            }
++        }
++        if result.is_err() && stage == 8 && srp_status != 0 {
++            let count = match srp_status {
++                0x00f0_2601 ..= 0x00f0_2606 => (srp_status & 0xff) as u32,
++                -135 | -138 => 7, // PSA invalid argument/buffer too small.
++                -147 => 8,        // PSA hardware failure.
++                -148 => 9,        // PSA insufficient entropy.
++                -0x5100 => 11,    // Mbed TLS MD bad input.
++                -0x5180 => 12,    // Mbed TLS MD allocation failure.
++                _ => 10,
++            };
++            cortex_m::asm::delay(24_000_000);
++            for _ in 0 .. count {
++                color(7); // White bursts: raw SRP status class.
++                cortex_m::asm::delay(8_000_000);
++                color(0);
++                cortex_m::asm::delay(8_000_000);
 +            }
 +        }
 +        cortex_m::asm::delay(32_000_000);
