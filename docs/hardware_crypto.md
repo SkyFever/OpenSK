@@ -92,8 +92,8 @@ user's board; Ed25519 execution remains to be verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
-SHA-1/SHA-224 and HMAC vectors pass in the host driver model; hardware execution
-of these additional primitives is pending.
+SHA-1/SHA-224 and HMAC vectors pass in the host driver model and corrected
+hardware diagnostic stage 2.
 
 The `aes128` adapter feature exposes ECB/CBC (without padding), CTR, CMAC,
 CBC-MAC and CCM with 7–13-byte nonces and 4–16-byte even-length tags.
@@ -117,6 +117,8 @@ execution is pending. OpenSK credential algorithms are unchanged.
 The `ecc` adapter feature exposes NIST P-192/P-224/P-256/P-384,
 secp192k1/secp224k1/secp256k1 and BrainpoolP256r1 keygen, SEC1 public keys,
 ECDSA prehash and ECDH. Host OpenSSL cross-checks cover all eight curves.
+secp224k1 uses 29-byte private/signature scalars and 28-byte coordinates/ECDH
+outputs; Nordic's pinned mapper selects it using field bits 224.
 The pinned PSA binary rejects 160-bit and P-521 domain mappings; these curves
 are not exposed. SHA-384/SHA-512 digests may be supplied to ECDSA externally,
 but their hash computation is not a CC310 hardware path. Hardware execution
@@ -144,7 +146,9 @@ failed stage, followed by blue bursts for a substep when available: 1 TRNG/DRBG,
 active stage color; RTT logs provide the stage and error. The diagnostic image
 has no FIDO event loop; restore the normal OpenSK UF2 after recording its result.
 Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
-5 long-key HMAC-SHA224. ECC substeps follow the eight-curve order listed above.
+5 long-key HMAC-SHA224. AES substeps are 1 ECB, 2 CBC, 3 CTR, 4 CMAC,
+5 CBC-MAC, 6 CCM, 7 tagless CCM*, 8 tampered CCM tag. ECC substeps follow the
+eight-curve order listed above.
 No hardware execution is implied by successfully building this image.
 
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
@@ -162,3 +166,7 @@ hardware.
 CC310's DMA driver accepts RAM addresses only. Flash input is copied to a
 wiped RAM buffer for hash/MAC, cipher and AEAD calls; existing RAM input keeps
 the direct DMA path. This also handles fixed vectors and long HMAC keys.
+
+The pinned PSA MAC function exposes CMAC but rejects CBC-MAC. Raw CBC-MAC
+therefore uses CC310 CBC encryption with a zero IV and returns the final block,
+without switching to software crypto.

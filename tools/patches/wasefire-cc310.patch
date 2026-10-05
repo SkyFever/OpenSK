@@ -1628,10 +1628,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..22b795a0
+index 00000000..4800d4e0
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,674 @@
+@@ -0,0 +1,697 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -1974,8 +1974,31 @@ index 00000000..22b795a0
 +                            size_t size, uint8_t output[16])
 +{
 +    psa_key_attributes_t attr = aes128_attributes();
++    if (!cmac) {
++        /* The pinned PSA MAC entry point exposes CMAC only. Raw CBC-MAC is
++         * the final block of CC310 CBC encryption with an all-zero IV. */
++        if (!size || size % 16) return PSA_ERROR_INVALID_ARGUMENT;
++        static const uint8_t iv[16] = {0};
++        cc3xx_cipher_operation_t operation = {0};
++        int result = cc3xx_cipher_encrypt_setup(&operation, &attr, key, 16,
++                                                PSA_ALG_CBC_NO_PADDING);
++        if (!result) result = cc3xx_cipher_set_iv(&operation, iv, 16);
++        while (!result && size) {
++            size_t written = 0;
++            result = cc3xx_cipher_update(&operation, data, 16, output, 16, &written);
++            if (!result && written != 16) result = PSA_ERROR_CORRUPTION_DETECTED;
++            data += 16;
++            size -= 16;
++        }
++        uint8_t tail[16] = {0};
++        size_t written = 0;
++        if (!result) result = cc3xx_cipher_finish(&operation, tail, sizeof(tail), &written);
++        if (!result && written) result = PSA_ERROR_CORRUPTION_DETECTED;
++        int aborted = cc3xx_cipher_abort(&operation);
++        return result ? result : aborted;
++    }
 +    size_t written = 0;
-+    int result = cc3xx_mac_compute(&attr, key, 16, cmac ? PSA_ALG_CMAC : PSA_ALG_CBC_MAC,
++    int result = cc3xx_mac_compute(&attr, key, 16, PSA_ALG_CMAC,
 +                                   data, size, output, 16, &written);
 +    return result ? result : (written == 16 ? 0 : PSA_ERROR_CORRUPTION_DETECTED);
 +}
@@ -3939,10 +3962,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..0e094f8e
+index 00000000..22f37a87
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,229 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -3998,7 +4021,7 @@ index 00000000..0e094f8e
 +    progress(3, 0);
 +    let key = hex::<16>("2b7e151628aed2a6abf7158809cf4f3c");
 +    let data = hex::<16>("6bc1bee22e409f96e93d7e117393172a");
-+    for (mode, iv, answer) in [
++    for (index, (mode, iv, answer)) in [
 +        (aes128::Mode::Ecb, [0; 16], "3ad77bb40d7a3660a89ecaf32466ef97"),
 +        (
 +            aes128::Mode::Cbc,
@@ -4010,7 +4033,11 @@ index 00000000..0e094f8e
 +            hex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"),
 +            "874d6191b620e3261bef6864990db6ce",
 +        ),
-+    ] {
++    ]
++    .into_iter()
++    .enumerate()
++    {
++        progress(3, index as u32 + 1);
 +        let (mut out, mut clear) = ([0; 16], [0; 16]);
 +        aes128::cipher(mode, true, &key, &iv, &data, &mut out)?;
 +        check(out == hex::<16>(answer))?;
@@ -4018,20 +4045,29 @@ index 00000000..0e094f8e
 +        check(clear == data)?;
 +    }
 +    let mut mac = [0; 16];
++    progress(3, 4);
 +    aes128::cmac(&key, b"", &mut mac)?;
 +    check(mac == hex("bb1d6929e95937287fa37d129b756746"))?;
++    progress(3, 5);
 +    aes128::cbc_mac(&key, &data, &mut mac)?;
 +    check(mac == hex("3ad77bb40d7a3660a89ecaf32466ef97"))?;
++    let blocks = hex::<32>("6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51");
++    aes128::cbc_mac(&key, &blocks, &mut mac)?;
++    check(mac == hex("b148c17f309ee692287ae57cf12add49"))?;
++    progress(3, 6);
 +    let (mut cipher, mut clear, mut tag) = ([0; 16], [0; 16], [0; 8]);
 +    aes128::ccm_encrypt(&key, &[0x11; 13], b"aad", &data, &mut cipher, &mut tag)?;
 +    aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear)?;
 +    check(clear == data)?;
 +    let mut star = [0; 16];
++    progress(3, 7);
 +    aes128::ccm_star_no_tag(&key, &[0x11; 13], &data, &mut star)?;
 +    check(star == cipher)?;
++    progress(3, 8);
 +    tag[0] ^= 1;
 +    check(aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear).is_err())?;
 +    progress(4, 0);
++    progress(4, 1);
 +    let seed = hex::<32>("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
 +    let (mut r, mut s, mut public) = ([0; 32], [0; 32], [0; 32]);
 +    Ed25519::public(&seed, &mut public)?;
@@ -4040,6 +4076,7 @@ index 00000000..0e094f8e
 +    check(s == hex("085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"))?;
 +    check(Ed25519::verify(&public, &[0x72], &r, &s)?)?;
 +    check(!Ed25519::verify(&public, &[0x73], &r, &s)?)?;
++    progress(4, 2);
 +    let mut fresh = [0; 32];
 +    Ed25519::generate(&mut fresh)?;
 +    Ed25519::public(&fresh, &mut public)?;
@@ -4048,11 +4085,14 @@ index 00000000..0e094f8e
 +    Ed25519::drop_private(&mut fresh)?;
 +    progress(5, 0);
 +    let private = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
++    progress(5, 1);
 +    x25519::public(&private, &mut public)?;
 +    check(public == hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"))?;
 +    let peer = hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
++    progress(5, 2);
 +    x25519::shared(&private, &peer, &mut a)?;
 +    check(a == hex("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"))?;
++    progress(5, 3);
 +    check(x25519::shared(&private, &[0; 32], &mut a).is_err())?;
 +    progress(6, 0);
 +    for (index, curve) in [
@@ -4087,22 +4127,33 @@ index 00000000..0e094f8e
 +    }
 +    progress(7, 0);
 +    let bits = rsa::Bits::B2048;
++    progress(7, 1);
 +    let private = rsa::generate(bits)?;
++    progress(7, 2);
 +    let public = rsa::public(bits, &private)?;
-+    for padding in [rsa::SignaturePadding::Pkcs1v15, rsa::SignaturePadding::Pss] {
++    for (index, padding) in
++        [rsa::SignaturePadding::Pkcs1v15, rsa::SignaturePadding::Pss].into_iter().enumerate()
++    {
++        progress(7, index as u32 + 3);
 +        let mut sig = [0; 256];
 +        rsa::sign(bits, padding, &private, &[0x42; 32], &mut sig)?;
 +        check(rsa::verify(bits, padding, &public, &[0x42; 32], &sig)?)?;
 +        check(!rsa::verify(bits, padding, &public, &[0x43; 32], &sig)?)?;
 +    }
-+    for padding in [rsa::EncryptionPadding::Pkcs1v15, rsa::EncryptionPadding::OaepSha256] {
++    for (index, padding) in [rsa::EncryptionPadding::Pkcs1v15, rsa::EncryptionPadding::OaepSha256]
++        .into_iter()
++        .enumerate()
++    {
++        progress(7, index as u32 + 5);
 +        let mut cipher = [0; 256];
 +        rsa::encrypt(bits, padding, &public, b"", b"CC310 RSA", &mut cipher)?;
 +        let clear = rsa::decrypt(bits, padding, &private, b"", &cipher)?;
 +        check(clear.as_slice() == b"CC310 RSA")?;
 +    }
 +    progress(8, 0);
++    progress(8, 1);
 +    srp_roundtrip(false)?;
++    progress(8, 2);
 +    srp_roundtrip(true)?;
 +    progress(9, 0);
 +    let key = hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
@@ -4683,10 +4734,10 @@ index 00000000..ad0b9966
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/tests.rs b/crates/runner-nordic/crates/cc310/src/tests.rs
 new file mode 100644
-index 00000000..85ceef49
+index 00000000..1a739f4b
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/tests.rs
-@@ -0,0 +1,524 @@
+@@ -0,0 +1,526 @@
 +// SPDX-License-Identifier: Apache-2.0
 +extern crate std;
 +use std::sync::Mutex;
@@ -5039,6 +5090,8 @@ index 00000000..85ceef49
 +    assert_eq!(mac, hex("bb1d6929e95937287fa37d129b756746"));
 +    cbc_mac(&key, &data[.. 16], &mut mac).unwrap();
 +    assert_eq!(mac, hex("3ad77bb40d7a3660a89ecaf32466ef97"));
++    cbc_mac(&key, &data, &mut mac).unwrap();
++    assert_eq!(mac, hex("b148c17f309ee692287ae57cf12add49"));
 +    let nonce = [0x11; 13];
 +    let mut out = [0; 32];
 +    let mut tag = [0; 8];
