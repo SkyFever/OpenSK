@@ -146,7 +146,15 @@ ephemeral public keys, session keys and mutual proofs. It uses the same
 v0.9.19 legacy/core libraries and CC310 SHA-256 hooks; secret contexts are wiped.
 ABI assertions match the pinned 1020-byte SRP context. SRP has passed ARM
 compilation and full linking. The first SRP-3072 hardware round trip failed;
-operation and raw-status diagnostics now distinguish the failed call.
+operation and raw-status diagnostics identified user initialization, with
+CC_SRP_INTERNAL_PKI_ERROR. Disassembly showed that SRP's three zero-digest
+guards use memcmp semantics, while the linked CC_PalSecMemCmp returns 1
+for equal buffers. Builds now copy the pinned legacy archive and rebind only
+srp_driver.c.obj to its existing SRP_SecureMemCmp (0 for equal buffers).
+The cached dependency and other archive members are unchanged. The hardware
+diagnostic checks both initialized multipliers against the independently
+computed SHA256(N || PAD(g)) vector before the round trip. Device revalidation
+of this correction is pending.
 
 Build the single hardware diagnostic image with
 `./tools/build_cc310_tests.sh --self-test-only`. It writes
@@ -183,7 +191,8 @@ SRP blue bursts identify the exchange (1 valid, 2 tampered user proof), and
 green bursts identify the operation: 1 user initialization, 2 host initialization,
 3 salt/verifier, 4 user public key, 5 host public key, 6 user proof/key,
 7 host proof/key, 8 matching session keys, 9 user verifies host proof,
-10 unusable host context after rejection. White bursts identify the raw status:
+10 unusable host context after rejection, 11 user multiplier vector,
+12 host multiplier vector. White bursts identify the raw status:
 1 invalid parameter, 2 invalid modulus size, 3 uninitialized state, 4 proof/result
 mismatch, 5 PKA parameter error, 6 internal PKA error, 7 PSA argument/buffer
 error, 8 PSA hardware failure, 9 insufficient entropy, 10 other,

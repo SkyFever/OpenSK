@@ -1105,10 +1105,10 @@ index 00000000..a1971e01
 +rust.unsafe_op_in_unsafe_fn = "deny"
 diff --git a/crates/runner-nordic/crates/cc310/build.rs b/crates/runner-nordic/crates/cc310/build.rs
 new file mode 100644
-index 00000000..42fe4951
+index 00000000..15abd897
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/build.rs
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,113 @@
 +// SPDX-License-Identifier: Apache-2.0
 +use std::path::PathBuf;
 +use std::process::Command;
@@ -1174,7 +1174,7 @@ index 00000000..42fe4951
 +        .args(["-c", "src/cc310.c", "-o"])
 +        .arg(out.join("cc310.o")));
 +    let ar = std::env::var_os("CC310_AR").unwrap_or_else(|| "llvm-ar".into());
-+    run(Command::new(ar).arg("crs").arg(out.join("libopensk_cc310.a")).arg(out.join("cc310.o")));
++    run(Command::new(&ar).arg("crs").arg(out.join("libopensk_cc310.a")).arg(out.join("cc310.o")));
 +    println!("cargo::rustc-link-search=native={}", out.display());
 +    println!("cargo::rustc-link-lib=static=opensk_cc310");
 +    for (directory, name) in [
@@ -1190,8 +1190,27 @@ index 00000000..42fe4951
 +    }
 +    if srp {
 +        let path = nordic.join("nrf_cc310_mbedcrypto/lib/cortex-m4/soft-float/no-interrupts");
-+        println!("cargo::rustc-link-search=native={}", path.display());
-+        println!("cargo::rustc-link-lib=static=nrf_cc310_legacy_crypto_0.9.19");
++        // The legacy SRP zero-digest guards expect memcmp semantics (0 means equal).
++        // The platform's CC_PalSecMemCmp instead returns 1 for equal buffers.
++        // Rebind only this SRP object to its own constant-time memcmp implementation;
++        // keep the pinned dependency and every other archive member unchanged.
++        let legacy = out.join("libopensk_cc310_legacy.a");
++        std::fs::copy(path.join("libnrf_cc310_legacy_crypto_0.9.19.a"), &legacy)
++            .expect("could not copy legacy CC310 archive");
++        let object = out.join("srp_driver.c.obj");
++        let extracted = Command::new(&ar)
++            .arg("p")
++            .arg(&legacy)
++            .arg("srp_driver.c.obj")
++            .output()
++            .expect("could not extract CC310 SRP object");
++        assert!(extracted.status.success(), "CC310 SRP extraction failed");
++        std::fs::write(&object, extracted.stdout).expect("could not save CC310 SRP object");
++        run(Command::new("llvm-objcopy")
++            .arg("--redefine-sym=CC_PalSecMemCmp=SRP_SecureMemCmp")
++            .arg(&object));
++        run(Command::new(&ar).arg("r").arg(&legacy).arg(&object));
++        println!("cargo::rustc-link-lib=static=opensk_cc310_legacy");
 +        // Legacy SRP references the same version of the shared core.
 +        println!("cargo::rustc-link-lib=static=nrf_cc310_core_0.9.19");
 +        println!("cargo::rustc-link-lib=static=nrf_cc310_platform_0.9.19");
@@ -1633,10 +1652,10 @@ index 00000000..922ce311
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/cc310.c b/crates/runner-nordic/crates/cc310/src/cc310.c
 new file mode 100644
-index 00000000..a3fabe68
+index 00000000..9e013afa
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/cc310.c
-@@ -0,0 +1,1225 @@
+@@ -0,0 +1,1226 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +#include <stdint.h>
 +#include <stddef.h>
@@ -2826,6 +2845,7 @@ index 00000000..a3fabe68
 +};
 +size_t opensk_cc310_srp_size(void) { return sizeof(mbedtls_srp_context); }
 +size_t opensk_cc310_srp_key_size(const mbedtls_srp_context *ctx) { return ctx->sessionKeySize; }
++const uint8_t *opensk_cc310_srp_multiplier(const mbedtls_srp_context *ctx) { return ctx->kMult; }
 +int opensk_cc310_srp_init(mbedtls_srp_context *ctx, bool host, uint8_t *modulus,
 +                          size_t size, uint8_t generator, uint8_t *user,
 +                          size_t user_size, uint8_t *password, size_t password_size)
@@ -4645,10 +4665,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..859268e3
+index 00000000..f23edc96
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,335 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -4952,8 +4972,14 @@ index 00000000..859268e3
 +        b"cc310-test",
 +        Some(b"ephemeral-test-password"),
 +    )?;
++    // SHA256(N || PAD(g)), independently checked with Python and OpenSSL.
++    let expected_k = hex("081f4874fa543a371b49a670402fda59ecfab53a1b850fc42e1c357cc846111e");
++    operation(11);
++    check(user.diagnostic_multiplier() == expected_k)?;
 +    operation(2);
 +    let mut host = srp::Context::new(srp::Entity::Host, &modulus, 5, b"cc310-test", None)?;
++    operation(12);
++    check(host.diagnostic_multiplier() == expected_k)?;
 +    let mut salt = [0; 16];
 +    operation(3);
 +    let verifier = user.verifier(&mut salt)?;
@@ -4980,10 +5006,10 @@ index 00000000..859268e3
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/srp.rs b/crates/runner-nordic/crates/cc310/src/srp.rs
 new file mode 100644
-index 00000000..c4633665
+index 00000000..653143a7
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/srp.rs
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,288 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Nordic legacy SRP-6a/SHA-256, available on ARM. Caller supplies a trusted group.
 +//! A context belongs to one exchange. Do not reuse ephemeral keys across exchanges.
@@ -5084,6 +5110,14 @@ index 00000000..c4633665
 +            return Err(Error::world(0));
 +        }
 +        Ok(result)
++    }
++    #[cfg(feature = "self-test")]
++    pub(crate) fn diagnostic_multiplier(&mut self) -> [u8; 32] {
++        // SAFETY: The getter returns this live context's 64-byte kMult field.
++        unsafe {
++            let pointer = ffi::opensk_cc310_srp_multiplier(self.ptr());
++            core::slice::from_raw_parts(pointer, 32).try_into().unwrap()
++        }
 +    }
 +    fn ensure_valid(&self) -> Result<(), Error> {
 +        if self.valid { Ok(()) } else { Err(Error::world(0)) }
@@ -5239,6 +5273,8 @@ index 00000000..c4633665
 +    unsafe extern "C" {
 +        pub fn opensk_cc310_srp_size() -> usize;
 +        pub fn opensk_cc310_srp_key_size(ctx: *mut c_void) -> usize;
++        #[cfg(feature = "self-test")]
++        pub fn opensk_cc310_srp_multiplier(ctx: *mut c_void) -> *const u8;
 +        pub fn opensk_cc310_srp_init(
 +            ctx: *mut c_void, host: bool, modulus: *mut u8, size: usize, generator: u8,
 +            user: *mut u8, user_size: usize, password: *mut u8, password_size: usize,
