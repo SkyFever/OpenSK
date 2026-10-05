@@ -10,10 +10,11 @@ supports only 128-bit AES keys. Optional Ed25519 uses the CC310 driver.
 | SHA-256, HMAC-SHA256 | RustCrypto | CC310 |
 | AES-256-CBC | RustCrypto | RustCrypto |
 | Optional Ed25519 | RustCrypto | CC310 |
+| General RNG | nRF RNG peripheral | CC310 TRNG-seeded AES CTR-DRBG |
 
 This integrates the operations used by OpenSK; it does not expose every
-CryptoCell algorithm. OpenSK's general RNG uses the nRF RNG peripheral.
-The Nordic ECC driver additionally uses its internal CTR-DRBG/CryptoCell entropy.
+CryptoCell algorithm. The CC310 adapter also exposes direct TRNG entropy.
+PSA key-generation requests share the guarded CTR-DRBG without recursive locking.
 
 ## Build
 
@@ -47,7 +48,6 @@ The adapter can override its compiler/archive/cache paths with `CC310_CC`,
 - nrfxlib v2.9.2: `1143aee1e0521b5309e891b44a0a8048f83074d2`.
 - Mbed TLS v3.6.2-ncs2-2: `98603a8c91660beac00e0ee1d76198fb7c4ed29b`.
 - CC310 PSA/core/platform v0.9.19: Cortex-M4 soft-float, no-interrupts.
-- Optional Oberon v3.0.15: Cortex-M4 soft-float software implementation.
 
 Nordic components retain their Nordic 5-Clause licenses and chip-use
 restrictions. Mbed TLS headers retain their Apache-2.0 notices. SDK archives,
@@ -81,3 +81,4 @@ Registration, assertion, ES256 verification, wrong-RP/tampered-ID rejection and
 Token2 registration/login passed with the corrected firmware on the user's
 board. Valid attestation still requires separately provisioned AAGUID/certificate
 material; enabling batch attestation alone does not provision it.
+\nNew CC310 Ed25519 and general RNG paths have passed host adapter tests and\nARM builds. Their physical-device execution remains to be verified.\n
