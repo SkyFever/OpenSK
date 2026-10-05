@@ -87,7 +87,8 @@ board. Valid attestation still requires separately provisioned AAGUID/certificat
 material; enabling batch attestation alone does not provision it.
 
 New CC310 Ed25519 and general RNG paths have passed host adapter tests and
-ARM builds. Their physical-device execution remains to be verified.
+ARM builds. The corrected hardware diagnostic passed TRNG/DRBG stage 1 on the
+user's board; Ed25519 execution remains to be verified.
 
 The optional adapter feature `hashes` exposes one-shot SHA-1/SHA-224/SHA-256
 and HMAC with each hash. OpenSK uses SHA-256 through its existing board API.
@@ -138,10 +139,12 @@ Build the single hardware diagnostic image with
 `./tools/build_cc310_tests.sh --self-test-only`. It writes
 `build/hw-crypto/nordic-self-test.uf2` and halts after RAM-only checks.
 Repeated green blinking means all stages passed. Red bursts indicate the
-failed stage: 1 TRNG/DRBG, 2 hashes/HMAC, 3 AES-128, 4 Ed25519, 5 X25519,
+failed stage, followed by blue bursts for a substep when available: 1 TRNG/DRBG, 2 hashes/HMAC, 3 AES-128, 4 Ed25519, 5 X25519,
 6 additional ECC, 7 RSA, 8 SRP-3072, 9 ChaCha20-Poly1305. A hang leaves the
 active stage color; RTT logs provide the stage and error. The diagnostic image
 has no FIDO event loop; restore the normal OpenSK UF2 after recording its result.
+Hash substeps are 1 SHA-1, 2 SHA-224, 3 SHA-256, 4 HMAC-SHA1,
+5 long-key HMAC-SHA224. ECC substeps follow the eight-curve order listed above.
 No hardware execution is implied by successfully building this image.
 
 `aes128::ccm_star_no_tag` provides CCM* with a 13-byte nonce and no MAC,
@@ -153,5 +156,9 @@ subsequent calls from dereferencing callback pointers cleared by Nordic.
 
 Direct entropy uses Nordic's platform wrapper, including its RNG mutex and
 CC310 power handling. Calling the PSA entropy function directly left the
-hardware diagnostic at a static red stage 1; revalidation of the correction
-is pending.
+hardware diagnostic at a static red stage 1; the corrected stage passed on
+hardware.
+
+CC310's DMA driver accepts RAM addresses only. Flash input is copied to a
+wiped RAM buffer for hash/MAC, cipher and AEAD calls; existing RAM input keeps
+the direct DMA path. This also handles fixed vectors and long HMAC keys.

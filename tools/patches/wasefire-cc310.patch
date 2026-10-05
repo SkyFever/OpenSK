@@ -1200,10 +1200,10 @@ index 00000000..30c8e4b2
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/aes128.rs b/crates/runner-nordic/crates/cc310/src/aes128.rs
 new file mode 100644
-index 00000000..d815ac24
+index 00000000..b0ed22ae
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/aes128.rs
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,247 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! AES-128 primitives. CBC/ECB require whole blocks and use no padding.
 +use alloc::vec;
@@ -1213,7 +1213,7 @@ index 00000000..d815ac24
 +use wasefire_board_api::{Error, Support};
 +use zeroize::{Zeroize, Zeroizing};
 +
-+use crate::{driver, length};
++use crate::{DmaInput, driver, length};
 +
 +#[derive(Clone, Copy)]
 +#[repr(u32)]
@@ -1230,6 +1230,7 @@ index 00000000..d815ac24
 +    if !matches!(mode, Mode::Ctr) && !input.len().is_multiple_of(16) {
 +        return Err(Error::user(0));
 +    }
++    let input = DmaInput::new(input);
 +    let capacity = input.len().checked_add(16).ok_or(Error::user(0))?;
 +    let mut value = Zeroizing::new(vec![0; capacity]);
 +    // SAFETY: All slices are valid and the output includes a final-block reserve.
@@ -1259,6 +1260,7 @@ index 00000000..d815ac24
 +    mac(false, key, input, output)
 +}
 +fn mac(cmac: bool, key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) -> Result<(), Error> {
++    let input = DmaInput::new(input);
 +    let mut value = Zeroizing::new([0; 16]);
 +    // SAFETY: Keys and MACs are exactly one block and the input remains alive.
 +    driver(|| unsafe {
@@ -1288,6 +1290,8 @@ index 00000000..d815ac24
 +) -> Result<(), Error> {
 +    length(output, input.len())?;
 +    validate_ccm(nonce, input.len(), tag.len())?;
++    let aad = DmaInput::new(aad);
++    let input = DmaInput::new(input);
 +    let size = input.len().checked_add(tag.len()).ok_or(Error::user(0))?;
 +    let mut value = Zeroizing::new(vec![0; size]);
 +    // SAFETY: Combined output includes the exact requested authentication-tag size.
@@ -1315,6 +1319,7 @@ index 00000000..d815ac24
 +) -> Result<(), Error> {
 +    length(output, input.len())?;
 +    validate_ccm(nonce, input.len(), tag.len())?;
++    let aad = DmaInput::new(aad);
 +    let mut combined =
 +        Zeroizing::new(vec![0; input.len().checked_add(tag.len()).ok_or(Error::user(0))?]);
 +    combined[.. input.len()].copy_from_slice(input);
@@ -1367,7 +1372,9 @@ index 00000000..d815ac24
 +            length(clear, cipher.len())?;
 +        }
 +        validate_ccm(iv, cipher.len(), 4)?;
-+        let input = clear.map_or(cipher.as_ptr(), |x| x.as_ptr());
++        let aad = DmaInput::new(aad);
++        let clear = clear.map(DmaInput::new);
++        let input = clear.as_ref().map_or(cipher.as_ptr(), |x| x.as_ptr());
 +        // SAFETY: Exact aliasing is the PSA in-place convention. No partial overlap is possible.
 +        let result = driver(|| unsafe {
 +            ffi::opensk_cc310_ccm_detached(
@@ -1396,7 +1403,9 @@ index 00000000..d815ac24
 +            length(cipher, clear.len())?;
 +        }
 +        validate_ccm(iv, clear.len(), 4)?;
-+        let input = cipher.map_or(clear.as_ptr(), |x| x.as_ptr());
++        let aad = DmaInput::new(aad);
++        let cipher = cipher.map(DmaInput::new);
++        let input = cipher.as_ref().map_or(clear.as_ptr(), |x| x.as_ptr());
 +        let mut tag = *tag;
 +        // SAFETY: Exact in-place aliasing is allowed; the tag has an independent mutable copy.
 +        let result = driver(|| unsafe {
@@ -2325,10 +2334,10 @@ index 00000000..9f384d69
 +#endif
 diff --git a/crates/runner-nordic/crates/cc310/src/chacha20poly1305.rs b/crates/runner-nordic/crates/cc310/src/chacha20poly1305.rs
 new file mode 100644
-index 00000000..23f3b3ad
+index 00000000..c0941963
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/chacha20poly1305.rs
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,105 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! IETF ChaCha20-Poly1305 with a 256-bit key, 96-bit nonce and 128-bit tag.
 +use alloc::vec;
@@ -2336,7 +2345,7 @@ index 00000000..23f3b3ad
 +use wasefire_board_api::Error;
 +use zeroize::Zeroizing;
 +
-+use crate::{driver, length};
++use crate::{DmaInput, driver, length};
 +
 +/// Nonces must be unique for every encryption under a key.
 +pub fn encrypt(
@@ -2344,6 +2353,8 @@ index 00000000..23f3b3ad
 +    tag: &mut [u8; 16],
 +) -> Result<(), Error> {
 +    length(output, input.len())?;
++    let aad = DmaInput::new(aad);
++    let input = DmaInput::new(input);
 +    let size = input.len().checked_add(16).ok_or(Error::user(0))?;
 +    let mut value = Zeroizing::new(vec![0; size]);
 +    // SAFETY: Output has capacity for both ciphertext and the 16-byte tag.
@@ -2369,6 +2380,7 @@ index 00000000..23f3b3ad
 +) -> Result<(), Error> {
 +    length(output, input.len())?;
 +    let size = input.len().checked_add(16).ok_or(Error::user(0))?;
++    let aad = DmaInput::new(aad);
 +    let mut combined = Zeroizing::new(vec![0; size]);
 +    combined[.. input.len()].copy_from_slice(input);
 +    combined[input.len() ..].copy_from_slice(tag);
@@ -2890,16 +2902,16 @@ index 00000000..3c4caa98
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/hashes.rs b/crates/runner-nordic/crates/cc310/src/hashes.rs
 new file mode 100644
-index 00000000..595cbf43
+index 00000000..7fa5adee
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/hashes.rs
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,116 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Additional CC310 hash/HMAC primitives. OpenSK continues to use streaming SHA-256.
 +use wasefire_board_api::Error;
 +use zeroize::Zeroizing;
 +
-+use crate::{driver, length};
++use crate::{DmaInput, driver, length};
 +
 +#[derive(Clone, Copy)]
 +#[repr(u32)]
@@ -2919,6 +2931,7 @@ index 00000000..595cbf43
 +}
 +pub fn hash(algorithm: Algorithm, data: &[u8], output: &mut [u8]) -> Result<(), Error> {
 +    length(output, algorithm.output_size())?;
++    let data = DmaInput::new(data);
 +    let mut value = Zeroizing::new([0; 32]);
 +    // SAFETY: Input/output slices remain alive throughout the serialized call.
 +    driver(|| unsafe {
@@ -2941,6 +2954,7 @@ index 00000000..595cbf43
 +    } else {
 +        normalized[.. key.len()].copy_from_slice(key);
 +    }
++    let data = DmaInput::new(data);
 +    let mut value = Zeroizing::new([0; 32]);
 +    // SAFETY: A 64-byte normalized HMAC key and sized input/output buffers are supplied.
 +    driver(|| unsafe {
@@ -3010,10 +3024,10 @@ index 00000000..595cbf43
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/lib.rs b/crates/runner-nordic/crates/cc310/src/lib.rs
 new file mode 100644
-index 00000000..2023fdc9
+index 00000000..13e8f913
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/lib.rs
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,390 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! nRF52840 CC310 P-256 adapter. Keys retain Wasefire's big-endian wire format.
 +#![no_std]
@@ -3127,6 +3141,34 @@ index 00000000..2023fdc9
 +        -135 | -138 => Err(Error::user(0)), // PSA invalid argument or buffer too small.
 +        _ => Err(Error::world(0)),          /* Never fall back to software after a hardware
 +                                              * failure. */
++    }
++}
++
++// Nordic's SetDataBuffersInfo rejects addresses outside RAM. Copy Flash
++// inputs only; normal scheduler buffers retain the direct DMA path.
++struct DmaInput<'a> {
++    data: &'a [u8],
++    copy: Option<Zeroizing<alloc::vec::Vec<u8>>>,
++}
++impl<'a> DmaInput<'a> {
++    fn new(data: &'a [u8]) -> Self {
++        let start = data.as_ptr() as usize;
++        let in_ram = start >= 0x2000_0000
++            && start.checked_add(data.len()).is_some_and(|end| end <= 0x2004_0000);
++        let copy = if in_ram {
++            None
++        } else {
++            // A zero-length Vec has a non-RAM dangling pointer. Reserve one
++            // initialized byte so even empty DMA inputs have a RAM address.
++            Some(Zeroizing::new(if data.is_empty() { alloc::vec![0] } else { data.to_vec() }))
++        };
++        Self { data, copy }
++    }
++}
++impl core::ops::Deref for DmaInput<'_> {
++    type Target = [u8];
++    fn deref(&self) -> &[u8] {
++        self.copy.as_ref().map_or(self.data, |copy| &copy[.. self.data.len()])
 +    }
 +}
 +
@@ -3540,10 +3582,10 @@ index 00000000..e00097e4
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/rsa.rs b/crates/runner-nordic/crates/cc310/src/rsa.rs
 new file mode 100644
-index 00000000..1dc51217
+index 00000000..bb9c456f
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/rsa.rs
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,221 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! RSA with PKCS#1 DER keys, PKCS#1 v1.5/PSS signatures and v1.5/OAEP encryption.
 +use alloc::vec;
@@ -3552,7 +3594,7 @@ index 00000000..1dc51217
 +use wasefire_board_api::Error;
 +use zeroize::{Zeroize, Zeroizing};
 +
-+use crate::{INVALID_SIGNATURE, driver, length};
++use crate::{DmaInput, INVALID_SIGNATURE, driver, length};
 +#[derive(Clone, Copy)]
 +#[repr(usize)]
 +pub enum Bits {
@@ -3673,6 +3715,8 @@ index 00000000..1dc51217
 +    if (!oaep && !label.is_empty()) || input.len() > bits.size() - if oaep { 66 } else { 11 } {
 +        return Err(Error::user(0));
 +    }
++    let label = DmaInput::new(label);
++    let input = DmaInput::new(input);
 +    let mut value = Zeroizing::new(vec![0; output.len()]);
 +    let mut written = 0;
 +    // SAFETY: Sized modulus output and bounded plaintext/label stay valid through the call.
@@ -3707,6 +3751,8 @@ index 00000000..1dc51217
 +    if !oaep && !label.is_empty() {
 +        return Err(Error::user(0));
 +    }
++    let label = DmaInput::new(label);
++    let input = DmaInput::new(input);
 +    let mut value = Zeroizing::new(vec![0; bits.size()]);
 +    let mut written = 0;
 +    // SAFETY: Ciphertext is modulus-sized; unverified plaintext remains in a wiped temporary.
@@ -3886,10 +3932,10 @@ index 00000000..68547d5c
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/self_test.rs b/crates/runner-nordic/crates/cc310/src/self_test.rs
 new file mode 100644
-index 00000000..0bb32fba
+index 00000000..3ff22c8f
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/self_test.rs
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,200 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Finite, RAM-only hardware checks. Does not provision credentials or reset a device.
 +use alloc::vec;
@@ -3909,25 +3955,32 @@ index 00000000..0bb32fba
 +    }
 +    result
 +}
-+pub fn run(mut progress: impl FnMut(u32)) -> Result<(), Error> {
-+    progress(1);
++pub fn run(mut progress: impl FnMut(u32, u32)) -> Result<(), Error> {
++    progress(1, 0);
 +    let (mut a, mut b) = ([0; 32], [0; 32]);
++    progress(1, 1);
 +    crate::fill_entropy(&mut a)?;
 +    crate::fill_entropy(&mut b)?;
 +    check(a != b && a.iter().any(|&x| x != 0) && b.iter().any(|&x| x != 0))?;
++    progress(1, 2);
 +    crate::fill_random(&mut a)?;
 +    crate::fill_random(&mut b)?;
 +    check(a != b)?;
-+    progress(2);
++    progress(2, 0);
 +    let mut digest = [0; 32];
++    progress(2, 1);
 +    hashes::hash(hashes::Algorithm::Sha1, b"abc", &mut digest[.. 20])?;
 +    check(digest[.. 20] == hex::<20>("a9993e364706816aba3e25717850c26c9cd0d89d"))?;
++    progress(2, 2);
 +    hashes::hash(hashes::Algorithm::Sha224, b"abc", &mut digest[.. 28])?;
 +    check(digest[.. 28] == hex::<28>("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"))?;
++    progress(2, 3);
 +    hashes::hash(hashes::Algorithm::Sha256, b"abc", &mut digest)?;
 +    check(digest == hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))?;
++    progress(2, 4);
 +    hashes::hmac(hashes::Algorithm::Sha1, &[0x0b; 20], b"Hi There", &mut digest[.. 20])?;
 +    check(digest[.. 20] == hex::<20>("b617318655057264e28bc0b6fb378c8ef146be00"))?;
++    progress(2, 5);
 +    hashes::hmac(
 +        hashes::Algorithm::Sha224,
 +        &[0xaa; 131],
@@ -3935,7 +3988,7 @@ index 00000000..0bb32fba
 +        &mut digest[.. 28],
 +    )?;
 +    check(digest[.. 28] == hex::<28>("95e9a0db962095adaebe9b2d6f0dbce2d499f112f2d2b7273fa6870e"))?;
-+    progress(3);
++    progress(3, 0);
 +    let key = hex::<16>("2b7e151628aed2a6abf7158809cf4f3c");
 +    let data = hex::<16>("6bc1bee22e409f96e93d7e117393172a");
 +    for (mode, iv, answer) in [
@@ -3971,7 +4024,7 @@ index 00000000..0bb32fba
 +    check(star == cipher)?;
 +    tag[0] ^= 1;
 +    check(aes128::ccm_decrypt(&key, &[0x11; 13], b"aad", &cipher, &tag, &mut clear).is_err())?;
-+    progress(4);
++    progress(4, 0);
 +    let seed = hex::<32>("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
 +    let (mut r, mut s, mut public) = ([0; 32], [0; 32], [0; 32]);
 +    Ed25519::public(&seed, &mut public)?;
@@ -3986,7 +4039,7 @@ index 00000000..0bb32fba
 +    Ed25519::sign(&fresh, b"random Ed25519", &mut r, &mut s)?;
 +    check(Ed25519::verify(&public, b"random Ed25519", &r, &s)?)?;
 +    Ed25519::drop_private(&mut fresh)?;
-+    progress(5);
++    progress(5, 0);
 +    let private = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
 +    x25519::public(&private, &mut public)?;
 +    check(public == hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"))?;
@@ -3994,8 +4047,8 @@ index 00000000..0bb32fba
 +    x25519::shared(&private, &peer, &mut a)?;
 +    check(a == hex("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"))?;
 +    check(x25519::shared(&private, &[0; 32], &mut a).is_err())?;
-+    progress(6);
-+    for curve in [
++    progress(6, 0);
++    for (index, curve) in [
 +        ecc::Curve::P192,
 +        ecc::Curve::P224,
 +        ecc::Curve::P256,
@@ -4004,7 +4057,11 @@ index 00000000..0bb32fba
 +        ecc::Curve::Secp224k1,
 +        ecc::Curve::Secp256k1,
 +        ecc::Curve::BrainpoolP256r1,
-+    ] {
++    ]
++    .into_iter()
++    .enumerate()
++    {
++        progress(6, index as u32 + 1);
 +        let size = curve.scalar_size();
 +        let mut key = zeroize::Zeroizing::new(vec![0; size]);
 +        key[size - 1] = 1;
@@ -4020,7 +4077,7 @@ index 00000000..0bb32fba
 +        ecc::generate(curve, &mut key)?;
 +        ecc::public(curve, &key, &mut pubkey)?;
 +    }
-+    progress(7);
++    progress(7, 0);
 +    let bits = rsa::Bits::B2048;
 +    let private = rsa::generate(bits)?;
 +    let public = rsa::public(bits, &private)?;
@@ -4036,10 +4093,10 @@ index 00000000..0bb32fba
 +        let clear = rsa::decrypt(bits, padding, &private, b"", &cipher)?;
 +        check(clear.as_slice() == b"CC310 RSA")?;
 +    }
-+    progress(8);
++    progress(8, 0);
 +    srp_roundtrip(false)?;
 +    srp_roundtrip(true)?;
-+    progress(9);
++    progress(9, 0);
 +    let key = hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
 +    let nonce = hex("070000004041424344454647");
 +    let aad = hex::<12>("50515253c0c1c2c3c4c5c6c7");
@@ -4349,10 +4406,10 @@ index 00000000..09723eeb
 +}
 diff --git a/crates/runner-nordic/crates/cc310/src/symmetric.rs b/crates/runner-nordic/crates/cc310/src/symmetric.rs
 new file mode 100644
-index 00000000..f539f82a
+index 00000000..577011bd
 --- /dev/null
 +++ b/crates/runner-nordic/crates/cc310/src/symmetric.rs
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,192 @@
 +// SPDX-License-Identifier: Apache-2.0
 +//! Streaming SHA/HMAC adapters for the published Nordic PSA driver.
 +use alloc::boxed::Box;
@@ -4366,7 +4423,7 @@ index 00000000..f539f82a
 +use wasefire_board_api::{Error, Supported};
 +use zeroize::{Zeroize, Zeroizing};
 +
-+use crate::{driver, traced_driver};
++use crate::{DmaInput, driver, traced_driver};
 +
 +static ERROR: GlobalError = GlobalError::new();
 +fn record(failed: &mut bool, result: Result<(), Error>) {
@@ -4410,7 +4467,8 @@ index 00000000..f539f82a
 +            ERROR.record::<()>(Err(Error::world(0)));
 +            return;
 +        }
-+        // SAFETY: The state is live and data is readable for the duration of the call.
++        let data = DmaInput::new(data);
++        // SAFETY: The state is live and data is readable in RAM for the duration of the call.
 +        record(
 +            &mut self.failed,
 +            traced_driver(7, || unsafe {
@@ -4492,7 +4550,8 @@ index 00000000..f539f82a
 +            ERROR.record::<()>(Err(Error::world(0)));
 +            return;
 +        }
-+        // SAFETY: The state is live and data is readable for the duration of the call.
++        let data = DmaInput::new(data);
++        // SAFETY: The state is live and data is readable in RAM for the duration of the call.
 +        record(
 +            &mut self.failed,
 +            traced_driver(2, || unsafe {
@@ -5347,7 +5406,7 @@ index 0e714ea8..c960757c 100644
      }
  }
 diff --git a/crates/runner-nordic/src/main.rs b/crates/runner-nordic/src/main.rs
-index 891500fd..53bbb89a 100644
+index 891500fd..8d7a9dc4 100644
 --- a/crates/runner-nordic/src/main.rs
 +++ b/crates/runner-nordic/src/main.rs
 @@ -41,6 +41,7 @@ use nrf52840_hal::clocks::{self, ExternalOscillator, Internal, LfOscStopped};
@@ -5400,7 +5459,7 @@ index 891500fd..53bbb89a 100644
      Scheduler::<Board>::run();
  }
  
-@@ -393,3 +401,41 @@ fn usbd() {
+@@ -393,3 +401,51 @@ fn usbd() {
          state.serial.tick(polled, |event| state.events.push(event.into()));
      });
  }
@@ -5423,13 +5482,14 @@ index 891500fd..53bbb89a 100644
 +            }
 +        });
 +    }
-+    let mut stage = 0;
-+    let result = nrf_cc310::self_test::run(|next| {
++    let (mut stage, mut step) = (0, 0);
++    let result = nrf_cc310::self_test::run(|next, substep| {
 +        stage = next;
-+        log::debug!("CC310 self-test stage {}", next);
++        step = substep;
++        log::debug!("CC310 self-test stage {} step {}", next, substep);
 +        color(if next < 8 { next } else { 7 });
 +    });
-+    log::debug!("CC310 self-test: stage={} result={:?}", stage, result);
++    log::debug!("CC310 self-test: stage={} step={} result={:?}", stage, step, result);
 +    loop {
 +        // Green blinking: all checks passed. Red bursts count the failed stage.
 +        let (count, code) = if result.is_ok() { (1, 2) } else { (stage, 1) };
@@ -5438,6 +5498,15 @@ index 891500fd..53bbb89a 100644
 +            cortex_m::asm::delay(8_000_000);
 +            color(0);
 +            cortex_m::asm::delay(8_000_000);
++        }
++        if result.is_err() && step != 0 {
++            cortex_m::asm::delay(24_000_000);
++            for _ in 0 .. step {
++                color(4);
++                cortex_m::asm::delay(8_000_000);
++                color(0);
++                cortex_m::asm::delay(8_000_000);
++            }
 +        }
 +        cortex_m::asm::delay(32_000_000);
 +    }
